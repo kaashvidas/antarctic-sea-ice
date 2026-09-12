@@ -1,0 +1,40 @@
+# --- Python (GitHub's default Python template covers most of this;
+#     these are the project-specific additions) ---
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# --- Environment / secrets — NEVER commit these ---
+.env
+.cdsapirc
+
+# --- Data — raw and processed files are large and regenerable from
+#     src/data/*.py; they don't belong in git history ---
+data/raw/
+data/processed/
+outputs/
+*.nc
+*.nc4
+*.grib
+*.grib2
+*.tif
+*.tiff
+
+# --- Downloaded reference material (keep the papers themselves out of
+#     git if they're large PDFs; the file list can go in docs/papers/README.md) ---
+docs/papers/*.pdf
+
+# --- Frontend ---
+dashboard/node_modules/
+dashboard/dist/
+dashboard/build/
+dashboard/.env
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- OS / editor cruft ---
+.DS_Store
+.vscode/*
+!.vscode/extensions.json

@@ -1,0 +1,31 @@
+# Data access
+earthaccess>=0.9        # NSIDC / NASA Earthdata (sea-ice CDR)
+cdsapi>=0.7             # Copernicus Climate Data Store (ERA5)
+copernicusmarine>=1.3   # CMEMS ocean currents/SST (optional input channel)
+requests>=2.31          # USNIC iceberg CSV pull (no auth needed)
+
+# Data handling
+xarray>=2024.3
+dask>=2024.4
+netCDF4>=1.6
+numpy>=1.26
+pandas>=2.2
+scipy>=1.13
+rasterio>=1.3          # bathymetry GeoTIFF (NCEI DEM mosaic export)
+
+# Modeling
+torch>=2.2              # ConvLSTM (sea-ice forecaster) + optional residual net
+
+# Routing
+networkx>=3.3            # A* fallback over the cost grid
+
+# Plotting / sanity-check plots
+matplotlib>=3.8
+pillow>=10.0             # sea-ice overlay PNG export (integration/pipeline.py)
+
+# Backend (Phase 5/6 — serves precomputed GeoJSON to the dashboard)
+fastapi>=0.110
+uvicorn>=0.29
+
+# Notebooks
+jupyter>=1.0
