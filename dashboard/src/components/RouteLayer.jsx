@@ -1,44 +1,42 @@
-import { Polyline, Tooltip } from 'react-leaflet'
-import { toLatLngs } from '../geoutils'
+import { Polyline, CircleMarker, Tooltip } from 'react-leaflet'
 
 /**
- * Renders the two route LineString features from /api/routes, distinguished
- * by properties.route_type ("optimized" | "naive"). This comparison is the
- * core demo moment, so the two must read as obviously different at a glance.
+ * Draws the optimized (solid cyan) vs naive (dashed red) route from a
+ * plan_journey response's route_comparison paths — plain {lat,lon}[]
+ * arrays, not GeoJSON. Deliberately distinct styles per the legend so the
+ * comparison reads at a glance.
  */
-export default function RouteLayer({ routesGeoJSON }) {
-  if (!routesGeoJSON) return null
-
-  const features = routesGeoJSON.features.filter(
-    (f) => f.properties?.route_type === 'optimized' || f.properties?.route_type === 'naive',
-  )
+export default function RouteLayer({ optimizedPath, naivePath, start, goal }) {
+  const toPositions = (path) => (path || []).map((p) => [p.lat, p.lon])
 
   return (
     <>
-      {features.map((f, i) => {
-        const isOptimized = f.properties.route_type === 'optimized'
-        const positions = toLatLngs(f.geometry.coordinates)
-        return (
-          <Polyline
-            key={`route-${i}`}
-            positions={positions}
-            pathOptions={
-              isOptimized
-                ? { color: '#37d67a', weight: 4, opacity: 0.95 }
-                : {
-                    color: '#ff5c5c',
-                    weight: 3,
-                    opacity: 0.85,
-                    dashArray: '10,7',
-                  }
-            }
-          >
-            <Tooltip sticky>
-              {isOptimized ? 'Optimized route (ice-avoiding)' : 'Naive route (straight line)'}
-            </Tooltip>
-          </Polyline>
-        )
-      })}
+      {naivePath && (
+        <Polyline
+          positions={toPositions(naivePath)}
+          pathOptions={{ color: '#d1554a', weight: 3, opacity: 0.85, dashArray: '9,7' }}
+        >
+          <Tooltip sticky>Naive route (direct line)</Tooltip>
+        </Polyline>
+      )}
+      {optimizedPath && (
+        <Polyline
+          positions={toPositions(optimizedPath)}
+          pathOptions={{ color: '#34c3b8', weight: 4, opacity: 0.95 }}
+        >
+          <Tooltip sticky>Optimized route (ice-avoiding)</Tooltip>
+        </Polyline>
+      )}
+      {start && (
+        <CircleMarker center={[start.lat, start.lon]} radius={6} pathOptions={{ color: '#fff', weight: 2, fillColor: '#34c3b8', fillOpacity: 1 }}>
+          <Tooltip direction="top" offset={[0, -6]}>Start</Tooltip>
+        </CircleMarker>
+      )}
+      {goal && (
+        <CircleMarker center={[goal.lat, goal.lon]} radius={6} pathOptions={{ color: '#fff', weight: 2, fillColor: '#d1554a', fillOpacity: 1 }}>
+          <Tooltip direction="top" offset={[0, -6]}>Destination</Tooltip>
+        </CircleMarker>
+      )}
     </>
   )
 }

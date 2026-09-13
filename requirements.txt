@@ -11,7 +11,8 @@ netCDF4>=1.6
 numpy>=1.26
 pandas>=2.2
 scipy>=1.13
-rasterio>=1.3          # bathymetry GeoTIFF (NCEI DEM mosaic export)
+rasterio>=1.3          # bathymetry + Bremen AMSR2 sea-ice GeoTIFF regridding
+bottleneck>=1.3         # xarray's interpolate_na() gap-filling (build_seaice_history.py)
 
 # Modeling
 torch>=2.2              # ConvLSTM (sea-ice forecaster) + optional residual net
@@ -23,9 +24,10 @@ networkx>=3.3            # A* fallback over the cost grid
 matplotlib>=3.8
 pillow>=10.0             # sea-ice overlay PNG export (integration/pipeline.py)
 
-# Backend (Phase 5/6 — serves precomputed GeoJSON to the dashboard)
+# Backend (Phase 5/6 — serves precomputed GeoJSON + on-demand journey planning)
 fastapi>=0.110
 uvicorn>=0.29
+pydantic>=2.6            # POST /api/plan_journey request validation
 
 # Notebooks
 jupyter>=1.0

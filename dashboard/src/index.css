@@ -1,15 +1,64 @@
+/* ============================================================
+   Design tokens — Antarctic Voyage Planner
+   A maritime nav-instrument aesthetic: dark chart background,
+   restrained accent set, 4px spacing grid, distinct type scale
+   for headers / labels / body / data readouts.
+   ============================================================ */
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  /* --- surfaces --- */
+  --bg-0: #0a0e13; /* deepest app background */
+  --bg-1: #10151c; /* panel background */
+  --bg-2: #171e27; /* raised card background */
+  --bg-3: #1f2733; /* hover / active surface */
+  --border: #2a3441;
+  --border-soft: #202932;
 
-  font: 15px/145% var(--sans);
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
+  /* --- text --- */
+  --text-0: #eef2f6; /* headings */
+  --text-1: #c3ccd6; /* body */
+  --text-2: #8a97a6; /* secondary / labels */
+  --text-3: #5c6773; /* dim / disabled */
+
+  /* --- accents (deliberate, restrained) --- */
+  --accent-cyan: #34c3b8; /* primary — optimized route, primary data */
+  --accent-cyan-dim: #1c6f69;
+  --accent-amber: #e0a53c; /* caution / placeholder data */
+  --accent-amber-dim: #6b5321;
+  --accent-red: #d1554a; /* danger / naive route / warnings */
+  --accent-red-dim: #6e2c26;
+  --accent-blue: #5b8bc4; /* secondary data — icebergs, current */
+
+  /* --- spacing grid (4px unit) --- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+  --sp-8: 40px;
+  --sp-9: 56px;
+
+  /* --- type scale --- */
+  --font-sans: 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  --fs-micro: 10.5px; /* eyebrow / tag labels */
+  --fs-label: 11.5px; /* field labels, table headers */
+  --fs-body: 13px; /* body copy */
+  --fs-body-lg: 14.5px; /* emphasized body */
+  --fs-data: 20px; /* data readouts (distance, ETA) */
+  --fs-data-lg: 28px; /* hero data readouts */
+  --fs-h1: 15px; /* app title */
+  --fs-h2: 13px; /* panel titles */
+
+  --radius-sm: 3px;
+  --radius-md: 5px;
+
+  font: var(--fs-body) / 1.5 var(--font-sans);
+  color-scheme: dark;
+  color: var(--text-1);
+  background: var(--bg-0);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -30,4 +79,32 @@ body,
 
 body {
   overflow: hidden;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+::selection {
+  background: var(--accent-cyan-dim);
+}
+
+/* thin scrollbars everywhere, consistent with the instrument-panel look */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) var(--bg-1);
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: var(--bg-1);
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: var(--radius-sm);
 }

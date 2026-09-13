@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
@@ -136,6 +137,104 @@ def regrid_bathymetry(tif_path) -> np.ndarray:
         # dest's row 0 is the NORTH edge (top-down raster convention) but
         # target_lats is south->north ascending -- flip rows to match.
         return dest[::-1, :]
+
+
+def regrid_seaice_bremen(tif_path) -> np.ndarray:
+    """
+    Load a University of Bremen AMSR2 ASI GeoTIFF (see
+    download_seaice_bremen.py) and resample it onto the shared grid,
+    returning a plain (n_lat, n_lon) array of concentration in [0, 1] —
+    same shape/convention as the rest of the pipeline expects from
+    placeholder_seaice_concentration() (see integration/pipeline.py).
+
+    Per the ASI product's documentation, raw pixel values are 0-100
+    (percent); 120 flags land and other values above 100 flag
+    missing/masked swaths. Those get set to NaN *before* reprojecting
+    (not after) so bilinear resampling never blends a real concentration
+    value with a land/nodata flag value into a nonsense number at coastal
+    or swath-edge pixels.
+    """
+    import rasterio
+    from rasterio.warp import reproject, Resampling
+
+    target_lats, target_lons = lat_lon_mesh()
+    n_lat, n_lon = len(target_lats), len(target_lons)
+
+    with rasterio.open(tif_path) as src:
+        raw = src.read(1).astype(np.float32)
+        raw[raw > 100] = np.nan  # land (120) / missing-swath flags
+        concentration_pct = raw
+
+        px_w = (target_lons[-1] - target_lons[0]) / (n_lon - 1)
+        px_h = (target_lats[-1] - target_lats[0]) / (n_lat - 1)
+        dst_transform = rasterio.transform.from_origin(
+            target_lons[0] - px_w / 2, target_lats[-1] + px_h / 2, px_w, px_h
+        )
+        dest = np.full((n_lat, n_lon), np.nan, dtype=np.float32)
+        reproject(
+            source=concentration_pct,
+            destination=dest,
+            src_transform=src.transform,
+            src_crs=src.crs,
+            dst_transform=dst_transform,
+            dst_crs="EPSG:4326",
+            resampling=Resampling.bilinear,
+            src_nodata=np.nan,
+            dst_nodata=np.nan,
+        )
+        dest = dest[::-1, :] / 100.0  # flip to south->north row order, percent -> fraction
+
+    # Open-water cells with no valid nearby swath pixel (rare, but
+    # possible near the domain edge) fall back to 0 (ice-free) rather
+    # than propagating NaN into build_cost_grid's arithmetic -- explicit
+    # and disclosed, not silent.
+    return np.nan_to_num(dest, nan=0.0)
+
+
+def interpolate_weather_samples(wind_csv, current_csv):
+    """
+    Load the sparse real point samples from download_weather.py and
+    interpolate them onto the shared grid for every forecast day,
+    returning (wind_u, wind_v, current_u, current_v), each a
+    (n_days, n_lat, n_lon) array.
+
+    scipy.griddata scattered-point interpolation, same approach
+    preprocess.py already uses for curvilinear-source regridding in
+    regrid_to_shared_grid() -- these ~70 real sample points are sparser
+    still, but Open-Meteo has no bulk gridded endpoint (point-query API
+    only), so interpolating real sampled values is the honest option,
+    not synthesizing a field from nothing.
+    """
+    from scipy.interpolate import griddata
+
+    target_lats, target_lons = lat_lon_mesh()
+    target_lat_grid, target_lon_grid = np.meshgrid(target_lats, target_lons, indexing="ij")
+
+    wind_df = pd.read_csv(wind_csv)
+    current_df = pd.read_csv(current_csv)
+    n_days = int(max(wind_df["day"].max(), current_df["day"].max())) + 1
+    n_lat, n_lon = len(target_lats), len(target_lons)
+
+    def _interp_all_days(df, value_col):
+        out = np.zeros((n_days, n_lat, n_lon), dtype=np.float32)
+        for day in range(n_days):
+            day_df = df[df["day"] == day]
+            points = day_df[["lat", "lon"]].values
+            values = day_df[value_col].values
+            out[day] = griddata(points, values, (target_lat_grid, target_lon_grid), method="linear")
+            # points near the box edge can fall outside the sample points' convex hull ->
+            # NaN from linear interp; fill those from the nearest real sample instead of 0.
+            nan_mask = np.isnan(out[day])
+            if nan_mask.any():
+                out[day][nan_mask] = griddata(
+                    points, values, (target_lat_grid[nan_mask], target_lon_grid[nan_mask]), method="nearest"
+                )
+        return out
+
+    return (
+        _interp_all_days(wind_df, "wind_u"), _interp_all_days(wind_df, "wind_v"),
+        _interp_all_days(current_df, "current_u"), _interp_all_days(current_df, "current_v"),
+    )
 
 
 def save_processed(ds: xr.Dataset, name: str) -> Path:

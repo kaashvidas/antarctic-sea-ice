@@ -121,17 +121,23 @@ if __name__ == "__main__":
     from pathlib import Path
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--processed-path", default="data/processed/seaice.nc")
+    parser.add_argument("--processed-path", default="data/processed/seaice_history.nc")
     parser.add_argument("--input-seq-len", type=int, default=7)
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--save-checkpoint", default="data/processed/convlstm_checkpoint.pt",
+                         help="Where to save the trained model — src/integration/pipeline.py's "
+                              "get_seaice_concentration() looks for a checkpoint at exactly this "
+                              "default path and switches from persistence to real inference "
+                              "the moment one exists.")
     args = parser.parse_args()
 
     if not Path(args.processed_path).exists():
         print(
-            f"{args.processed_path} not found — run src/data/download_seaice.py + "
-            "src/data/preprocess.py first to produce real processed history "
-            "before training on it."
+            f"{args.processed_path} not found — run src/data/download_seaice_bremen.py "
+            "--start ... --end ... then src/data/build_seaice_history.py first to produce "
+            "real processed history before training on it (or src/data/download_seaice.py + "
+            "preprocess.py, once NSIDC credentials exist)."
         )
         raise SystemExit(1)
 
@@ -174,10 +180,33 @@ if __name__ == "__main__":
     truth_aligned = truth.isel(time=slice(0, len(convlstm_preds)))
 
     print("\nHeld-out skill (lower is better; report honestly, don't cherry-pick):")
+    skill = {}
     for name, pred in [
         ("persistence", persistence_pred.isel(time=slice(0, len(convlstm_preds)))),
         ("climatology", climatology_pred.isel(time=slice(0, len(convlstm_preds)))),
         ("convlstm", convlstm_pred),
     ]:
         metrics = evaluate(pred, truth_aligned)
+        skill[name] = metrics
         print(f"  {name:12s} mae={metrics['mae']:.4f} rmse={metrics['rmse']:.4f} bias={metrics['bias']:+.4f}")
+
+    if skill["convlstm"]["mae"] >= skill["persistence"]["mae"]:
+        print(
+            "\nNOTE: the trained model did not beat persistence on held-out MAE. Per this "
+            "module's own docstring (and the 'Should Sea-Ice Modeling Tools...' paper cited in "
+            "the README), that's not unheard-of at short lead times -- saving the checkpoint "
+            "anyway since pipeline.py's get_seaice_concentration() should still report this "
+            "honestly rather than silently keep using persistence, but flag it in the app's "
+            "disclosure rather than presenting it as a clear win."
+        )
+
+    ckpt_path = Path(args.save_checkpoint)
+    ckpt_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save({
+        "model_state_dict": model.state_dict(),
+        "input_seq_len": args.input_seq_len,
+        "trained_on": args.processed_path,
+        "n_train_days": int(train_sl.stop - train_sl.start),
+        "held_out_skill": {k: {mk: float(mv) for mk, mv in v.items()} for k, v in skill.items()},
+    }, ckpt_path)
+    print(f"Saved checkpoint to {ckpt_path}")

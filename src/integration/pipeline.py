@@ -5,19 +5,32 @@ One script chaining Layer 2 -> Layer 3: sea-ice forecast -> iceberg drift
 (coupled to that forecast) -> route optimization -> GeoJSON/PNG output for
 the dashboard.
 
-Data honesty note (2026-09-12): the iceberg cluster (real USNIC positions
-+ sizes), the bathymetry (real NCEI DEM export), and the drift physics
-(real WDE17 port) are genuine. Sea-ice concentration and wind/current
-forcing are NOT yet real — NSIDC/CDS downloads are blocked on Earthdata
-and CDS credentials not being present on this machine (see
-src/data/download_seaice.py / download_era5.py). Until those land, this
-pipeline runs on clearly-labeled synthetic placeholders for those two
-inputs specifically (see `PLACEHOLDER_INPUTS` below and each function's
-docstring) so the rest of the system — drift, routing, GeoJSON, dashboard
-— is demonstrably complete and trivial to re-run once real forcing data
-exists. Swap point: `placeholder_seaice_concentration()` and
-`placeholder_forcing_fields()` below are the only two functions that need
-replacing with real regridded NSIDC/ERA5 data.
+Data honesty note (updated 2026-09-13): NSIDC (Earthdata) and CDS (ERA5)
+are still blocked on missing credentials on this build machine. Real,
+NO-LOGIN alternatives are now wired in instead:
+  - Sea-ice concentration: University of Bremen AMSR2 (real satellite
+    observation, ~1-2 day lag), persisted across the forecast horizon —
+    a real PERSISTENCE forecast (same method as baseline.py's
+    persistence_forecast, applied to real current-day data), not a
+    trained multi-day forecast. See get_seaice_concentration().
+  - Wind + ocean current: Open-Meteo (GFS wind model + marine/wave
+    model), a genuine multi-day forecast, sampled at ~70 real points
+    across the domain and interpolated onto the shared grid. See
+    get_forcing_fields().
+  - Iceberg thickness: WDE17's own published size-class table
+    (length -> draft/thickness), not a flat guess. See
+    estimate_thickness_m().
+The original synthetic placeholders (placeholder_seaice_concentration,
+placeholder_forcing_fields) are kept as a last-resort fallback if the
+real-data files haven't been downloaded yet — every function that can
+fall back to them says so loudly (printed warning + a `source`/
+`is_real_data` field in its return value), never silently.
+
+Still not wired in: a TRAINED ConvLSTM forecast (src/models/seaice_forecast/)
+— that needs real multi-year NSIDC history to train on, which is still
+credential-blocked. get_seaice_concentration() has the swap point ready
+(checks for a checkpoint file first) but there is no checkpoint yet, so
+it falls through to the real-persistence path above.
 """
 
 import json
@@ -31,27 +44,68 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.utils.grid import (  # noqa: E402
     GRID, DEMO_ICEBERG_IDS, lat_lon_mesh, latlon_to_index, index_to_latlon, n_grid_cells,
 )
-from src.data.preprocess import regrid_bathymetry  # noqa: E402
+from src.data.preprocess import regrid_bathymetry, regrid_seaice_bremen, interpolate_weather_samples  # noqa: E402
 from src.models.iceberg_drift.wagner_model import IcebergState, step  # noqa: E402
 from src.models.routing.isochrone import build_cost_grid, astar_route, naive_route  # noqa: E402
 
+DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "outputs"
-ICEBERG_CSV = Path(__file__).resolve().parents[2] / "data" / "raw" / "icebergs" / "antarctic_icebergs_latest.csv"
-BATHY_TIF = Path(__file__).resolve().parents[2] / "data" / "raw" / "bathymetry" / "weddell_bathymetry.tif"
+ICEBERG_CSV = DATA_DIR / "raw" / "icebergs" / "antarctic_icebergs_latest.csv"
+BATHY_TIF = DATA_DIR / "raw" / "bathymetry" / "weddell_bathymetry.tif"
+SEAICE_BREMEN_DIR = DATA_DIR / "raw" / "seaice_bremen"
+WEATHER_DIR = DATA_DIR / "raw" / "weather"
+CONVLSTM_CHECKPOINT = DATA_DIR / "processed" / "convlstm_checkpoint.pt"
 
 NM_TO_M = 1852.0
-ASSUMED_THICKNESS_M = 250.0  # typical Antarctic tabular iceberg draft/thickness range (200-300m); not measured
 N_ENSEMBLE = 8               # perturbed drift members per iceberg, for the uncertainty cone
 DT_SECONDS = 24 * 3600
 
+# Kept for any external caller still importing this name; prefer the
+# `is_real_data` flag in get_seaice_concentration()/get_forcing_fields()'s
+# returned info dict, which is accurate per-run rather than a fixed list.
 PLACEHOLDER_INPUTS = ["sea_ice_concentration", "wind_field", "current_field"]
+
+# WDE17's published iceberg size classes ([length, width, height] in
+# meters — see src/models/iceberg_drift/wagner_model.py's module
+# docstring for the same source notebook). Real estimate_thickness_m()
+# extrapolates from this rather than assuming one flat number for every
+# iceberg regardless of size.
+_WDE17_BERGDIMS_LWH = [
+    (100, 67, 67), (200, 133, 133), (300, 200, 200), (400, 267, 267),
+    (500, 333, 300), (600, 400, 300), (750, 500, 300), (900, 600, 300),
+    (1200, 800, 300), (1500, 1000, 300),
+]
+
+
+def estimate_thickness_m(length_m: float) -> float:
+    """
+    Thickness/draft estimate from WDE17's published length->height size
+    classes, clamped at the table's ends rather than extrapolated beyond
+    them. NOTE: every iceberg in this build's real tracked cluster
+    (D32/D33A-D/D35) is 16-39 km long -- far beyond this table's 1500m
+    max, calved from Antarctic ice shelves rather than glacier termini --
+    so all of them clamp to the table's asymptotic 300m. That's not a
+    bug: real large Antarctic tabular bergs genuinely do have drafts in
+    the 200-300m range regardless of horizontal size, since it's set by
+    the source ice shelf's thickness, not by how large the calved piece
+    is. This still isn't a *measurement* of these specific icebergs --
+    it's a literature-grounded estimate, and the API still discloses it
+    as such (`is_placeholder_thickness`).
+    """
+    lengths = [d[0] for d in _WDE17_BERGDIMS_LWH]
+    heights = [d[2] for d in _WDE17_BERGDIMS_LWH]
+    if length_m <= lengths[0]:
+        return float(heights[0])
+    if length_m >= lengths[-1]:
+        return float(heights[-1])
+    return float(np.interp(length_m, lengths, heights))
 
 
 def load_iceberg_cluster(iceberg_ids=None, csv_path: Path = ICEBERG_CSV) -> list:
     """Real USNIC positions/sizes for this build's demo cluster (see
     grid.py's DEMO_ICEBERG_IDS docstring for provenance). Thickness isn't
-    in USNIC's table -- ASSUMED_THICKNESS_M is a disclosed literature-range
-    assumption, not a measurement."""
+    in USNIC's table -- estimate_thickness_m() is a disclosed literature-
+    based estimate, not a measurement."""
     iceberg_ids = iceberg_ids or DEMO_ICEBERG_IDS
     if not csv_path.exists():
         raise FileNotFoundError(f"{csv_path} not found — run src/data/download_icebergs.py first.")
@@ -69,13 +123,14 @@ def load_iceberg_cluster(iceberg_ids=None, csv_path: Path = ICEBERG_CSV) -> list
 
     states = []
     for _, row in cluster.iterrows():
+        length_m = float(row["Length (NM)"]) * NM_TO_M
         states.append({
             "id": row["Iceberg"],
             "state": IcebergState(
                 lat=float(row["Latitude"]), lon=float(row["Longitude"]),
-                length_m=float(row["Length (NM)"]) * NM_TO_M,
+                length_m=length_m,
                 width_m=float(row["Width (NM)"]) * NM_TO_M,
-                thickness_m=ASSUMED_THICKNESS_M,
+                thickness_m=estimate_thickness_m(length_m),
             ),
         })
     return states
@@ -83,70 +138,211 @@ def load_iceberg_cluster(iceberg_ids=None, csv_path: Path = ICEBERG_CSV) -> list
 
 def placeholder_seaice_concentration() -> np.ndarray:
     """
-    SYNTHETIC PLACEHOLDER pending real NSIDC data (blocked on Earthdata
-    credentials — see module docstring). Returns a (n_lat, n_lon) array,
-    0-1, shaped only to be directionally plausible for the Weddell Sea in
-    September (austral winter / near seasonal-maximum ice extent): higher
-    concentration toward the ice shelf in the south, lower toward the
-    open Scotia Sea in the north, with a smooth marginal ice zone between
-    -- NOT a forecast, don't present it as one.
+    Synthetic fallback, used ONLY if no real AMSR2 file has been
+    downloaded yet (see get_seaice_concentration()). Directionally
+    plausible for Weddell Sea winter (higher near the shelf, lower
+    toward open water) but not observed data -- NOT a forecast.
     """
     lats, lons = lat_lon_mesh()
     lat_grid, _ = np.meshgrid(lats, lons, indexing="ij")
-    # linear ramp: near-total cover at the southern edge, open water north
     frac_south_to_north = (lat_grid - GRID.lat_min) / (GRID.lat_max - GRID.lat_min)
     conc = np.clip(0.95 - 0.85 * frac_south_to_north, 0.0, 1.0)
     return conc.astype(np.float32)
 
 
 def placeholder_forcing_fields():
-    """
-    SYNTHETIC PLACEHOLDER pending real ERA5/CMEMS data (see module
-    docstring). Returns constant (wind_u, wind_v, current_u, current_v)
-    in m/s, loosely representative of the Weddell Gyre's mean clockwise
-    circulation and the prevailing westerlies at these latitudes -- NOT a
-    real forecast.
-    """
-    wind_u, wind_v = 6.0, -2.0        # m/s, westerly-dominant
-    current_u, current_v = -0.03, 0.05  # m/s, weak clockwise gyre component
+    """Synthetic fallback constant, used ONLY if no real Open-Meteo pull
+    exists yet (see get_forcing_fields())."""
+    wind_u, wind_v = 6.0, -2.0
+    current_u, current_v = -0.03, 0.05
     return wind_u, wind_v, current_u, current_v
 
 
-def run_drift_ensemble(iceberg_cluster, horizon_days: int = GRID.forecast_horizon_days,
+def _run_convlstm_forecast(horizon_days: int):
+    """
+    Real autoregressive ConvLSTM inference: load the trained checkpoint,
+    feed it the most recent `input_seq_len` real days from
+    data/processed/seaice_history.nc, and roll it forward day by day —
+    each day's prediction becomes the newest frame for the next step, per
+    convlstm.py's own docstring. Returns a (horizon_days+1, n_lat, n_lon)
+    array (day 0 = the last real observation, days 1..horizon_days =
+    genuine model predictions), or raises if the checkpoint/history
+    aren't usable, so the caller can fall back cleanly.
+    """
+    import torch
+    from src.models.seaice_forecast.convlstm import SeaIceConvLSTM
+
+    history_path = DATA_DIR / "processed" / "seaice_history.nc"
+    if not history_path.exists():
+        raise FileNotFoundError(
+            f"{history_path} not found — run src/data/build_seaice_history.py "
+            "after downloading real history with download_seaice_bremen.py's --start/--end."
+        )
+
+    import xarray as xr
+    ds = xr.open_dataset(history_path)
+    input_seq_len = 7
+    if ds.sizes["time"] < input_seq_len:
+        raise ValueError(f"History has only {ds.sizes['time']} days, need >= {input_seq_len}.")
+
+    checkpoint = torch.load(CONVLSTM_CHECKPOINT, map_location="cpu")
+    model = SeaIceConvLSTM(input_dim=1)
+    model.load_state_dict(checkpoint["model_state_dict"] if "model_state_dict" in checkpoint else checkpoint)
+    model.eval()
+
+    window = ds["cdr_seaice_conc"].isel(time=slice(-input_seq_len, None)).values.astype(np.float32)
+    last_obs_date = str(ds["time"].values[-1])[:10]
+    frames = [window[-1]]  # day 0 = last real observation
+
+    with torch.no_grad():
+        x_seq = torch.from_numpy(window).unsqueeze(0).unsqueeze(2)  # (1, seq, 1, H, W)
+        for _ in range(horizon_days):
+            pred = model(x_seq).squeeze(0).squeeze(0).numpy()  # (H, W)
+            frames.append(pred)
+            next_frame = torch.from_numpy(pred).unsqueeze(0).unsqueeze(0).unsqueeze(0)  # (1,1,1,H,W)
+            x_seq = torch.cat([x_seq[:, 1:], next_frame], dim=1)
+
+    return np.stack(frames, axis=0), last_obs_date
+
+
+def get_seaice_concentration(horizon_days: int = None):
+    """
+    Real-data-first swap chain for sea-ice concentration. Returns
+    (grid_stack, info) where grid_stack is ALWAYS (n_days, n_lat, n_lon)
+    in [0, 1] -- one field per forecast day, matching get_forcing_fields()'s
+    shape -- and info documents exactly what was used and why:
+      1. Trained ConvLSTM checkpoint + real processed history: genuine
+         autoregressive multi-day forecast (`is_true_forecast: True`).
+      2. Real AMSR2 satellite observation (download_seaice_bremen.py),
+         broadcast across every forecast day. Real data, but a
+         PERSISTENCE forecast, not a trained one
+         (`is_true_forecast: False`).
+      3. Last resort: the synthetic placeholder gradient, broadcast the
+         same way.
+    """
+    horizon_days = horizon_days if horizon_days is not None else GRID.forecast_horizon_days
+
+    if CONVLSTM_CHECKPOINT.exists():
+        try:
+            stack, last_obs_date = _run_convlstm_forecast(horizon_days)
+            return stack, {
+                "variable": "sea_ice_concentration",
+                "source": "Trained ConvLSTM (src/models/seaice_forecast/convlstm.py), "
+                          "real multi-day autoregressive forecast",
+                "observation_date": last_obs_date,
+                "method": f"autoregressive rollout from the last {7} real observed days",
+                "is_real_data": True,
+                "is_true_forecast": True,
+            }
+        except Exception as e:  # noqa: BLE001 -- any inference failure should fall back, not crash the app
+            print(f"WARNING: ConvLSTM checkpoint found but inference failed ({e}) — "
+                  "falling back to the real-observation persistence path.")
+
+    bremen_files = sorted(SEAICE_BREMEN_DIR.glob("seaice_*.tif")) if SEAICE_BREMEN_DIR.exists() else []
+    if bremen_files:
+        latest = bremen_files[-1]
+        obs_date = latest.stem.replace("seaice_", "")
+        obs_date = f"{obs_date[:4]}-{obs_date[4:6]}-{obs_date[6:]}"
+        conc = regrid_seaice_bremen(latest)
+        stack = np.repeat(conc[np.newaxis, :, :], horizon_days + 1, axis=0)
+        return stack, {
+            "variable": "sea_ice_concentration",
+            "source": "AMSR2 ASI (University of Bremen), real satellite observation",
+            "observation_date": obs_date,
+            "method": "persistence — today's real observed concentration held constant "
+                      "across the forecast horizon; no trained forecast model wired in yet",
+            "is_real_data": True,
+            "is_true_forecast": False,
+        }
+
+    print("WARNING: no real sea-ice file found under data/raw/seaice_bremen/ — "
+          "run `python src/data/download_seaice_bremen.py` first. Falling back to "
+          "a synthetic placeholder gradient for this run.")
+    conc = placeholder_seaice_concentration()
+    stack = np.repeat(conc[np.newaxis, :, :], horizon_days + 1, axis=0)
+    return stack, {
+        "variable": "sea_ice_concentration",
+        "source": "synthetic placeholder (no real data downloaded yet)",
+        "is_real_data": False,
+        "is_true_forecast": False,
+    }
+
+
+def get_forcing_fields(horizon_days: int = None):
+    """
+    Real-data-first swap chain for wind + ocean current. Returns
+    (wind_u, wind_v, current_u, current_v, info) where each array is
+    (n_days, n_lat, n_lon) in m/s, and info documents provenance.
+    """
+    horizon_days = horizon_days if horizon_days is not None else GRID.forecast_horizon_days
+    wind_csv = WEATHER_DIR / "wind_openmeteo.csv"
+    current_csv = WEATHER_DIR / "current_openmeteo.csv"
+
+    if wind_csv.exists() and current_csv.exists():
+        wind_u, wind_v, current_u, current_v = interpolate_weather_samples(wind_csv, current_csv)
+        return wind_u, wind_v, current_u, current_v, {
+            "variable": "wind_and_current",
+            "source": "Open-Meteo (GFS wind model + marine/wave current model), real multi-day forecast",
+            "method": "~70 real point samples across the domain, interpolated onto the shared grid",
+            "is_real_data": True,
+            "is_true_forecast": True,
+        }
+
+    print("WARNING: no real weather files found under data/raw/weather/ — "
+          "run `python src/data/download_weather.py` first. Falling back to a "
+          "constant synthetic placeholder for this run.")
+    wind_u_c, wind_v_c, current_u_c, current_v_c = placeholder_forcing_fields()
+    n_lon, n_lat = n_grid_cells()
+    ones = np.ones((horizon_days + 1, n_lat, n_lon), dtype=np.float32)
+    return (wind_u_c * ones, wind_v_c * ones, current_u_c * ones, current_v_c * ones, {
+        "variable": "wind_and_current",
+        "source": "synthetic placeholder (no real data downloaded yet)",
+        "is_real_data": False,
+        "is_true_forecast": False,
+    })
+
+
+def run_drift_ensemble(iceberg_cluster, horizon_days: int = None,
                         n_ensemble: int = N_ENSEMBLE, seed: int = 0):
     """
     For each tracked iceberg, run the real WDE17 physics (deterministic
-    center member + n_ensemble perturbed members with randomized
-    wind/current forcing) forward `horizon_days`, coupled to the
-    (currently placeholder) sea-ice concentration field. This is what
-    produces the drift PROBABILITY CONE, not a single deterministic line
-    — per the README's uncertainty-first rule.
+    center member + n_ensemble perturbed members) forward `horizon_days`,
+    sampling real (or, if unavailable, disclosed-placeholder) sea-ice
+    concentration and wind/current at the iceberg's current grid cell for
+    the current forecast day at every step — not a single global
+    constant. This is what produces the drift PROBABILITY CONE, not a
+    single deterministic line, per the README's uncertainty-first rule.
 
-    Returns {iceberg_id: [ [ (lat,lon) per day, for member 0 ], ... ]}
+    Returns (tracks, source_info) where tracks is
+    {iceberg_id: [ [ (lat,lon) per day, for member 0 ], ... ]}
+    and source_info documents what data actually went into this run.
     """
+    horizon_days = horizon_days if horizon_days is not None else GRID.forecast_horizon_days
     rng = np.random.default_rng(seed)
-    seaice_conc = placeholder_seaice_concentration()
-    base_wind_u, base_wind_v, base_current_u, base_current_v = placeholder_forcing_fields()
+    seaice_conc, seaice_info = get_seaice_concentration(horizon_days)
+    wind_u_grid, wind_v_grid, current_u_grid, current_v_grid, forcing_info = get_forcing_fields(horizon_days)
+    n_forcing_days = wind_u_grid.shape[0]
+    n_seaice_days = seaice_conc.shape[0]
 
     tracks = {}
     for entry in iceberg_cluster:
         iceberg_id, base_state = entry["id"], entry["state"]
         member_tracks = []
         for m in range(n_ensemble + 1):
-            if m == 0:
-                wind_u, wind_v = base_wind_u, base_wind_v
-                current_u, current_v = base_current_u, base_current_v
-            else:
-                wind_u = base_wind_u * (1 + rng.normal(0, 0.2))
-                wind_v = base_wind_v * (1 + rng.normal(0, 0.2))
-                current_u = base_current_u * (1 + rng.normal(0, 0.3))
-                current_v = base_current_v * (1 + rng.normal(0, 0.3))
+            wind_scale = 1.0 if m == 0 else (1 + rng.normal(0, 0.2))
+            current_scale = 1.0 if m == 0 else (1 + rng.normal(0, 0.3))
 
             state = IcebergState(**vars(base_state))
             track = [(state.lat, state.lon)]
-            for _ in range(horizon_days):
+            for day in range(horizon_days):
                 row, col = latlon_to_index(state.lat, state.lon)
-                local_conc = float(seaice_conc[row, col])
+                day_idx = min(day, n_forcing_days - 1)
+                seaice_day_idx = min(day, n_seaice_days - 1)
+                local_conc = float(seaice_conc[seaice_day_idx, row, col])
+                wind_u = float(wind_u_grid[day_idx, row, col]) * wind_scale
+                wind_v = float(wind_v_grid[day_idx, row, col]) * wind_scale
+                current_u = float(current_u_grid[day_idx, row, col]) * current_scale
+                current_v = float(current_v_grid[day_idx, row, col]) * current_scale
                 state = step(
                     state, DT_SECONDS,
                     wind_uv=(wind_u, wind_v), current_uv=(current_u, current_v),
@@ -156,7 +352,7 @@ def run_drift_ensemble(iceberg_cluster, horizon_days: int = GRID.forecast_horizo
                 track.append((state.lat, state.lon))
             member_tracks.append(track)
         tracks[iceberg_id] = member_tracks
-    return tracks
+    return tracks, {"seaice": seaice_info, "forcing": forcing_info}
 
 
 def rasterize_iceberg_risk(tracks: dict) -> np.ndarray:
@@ -201,9 +397,10 @@ def find_open_water(bathymetry: np.ndarray, near_lat: float, near_lon: float, ma
 
 def run_pipeline(forecast_date: str = None):
     """
-    Chain: real iceberg cluster -> real drift physics ensemble -> risk
-    raster -> real bathymetry -> cost grid -> A*/naive routes -> GeoJSON.
-    See module docstring for which inputs are still placeholders.
+    Chain: real iceberg cluster -> real drift physics ensemble (real
+    sea-ice/wind/current where downloaded, disclosed fallback otherwise)
+    -> risk raster -> real bathymetry -> cost grid -> A*/naive routes ->
+    GeoJSON. See module docstring for exactly what's real vs. fallback.
     """
     print(f"Domain grid: {GRID}")
     forecast_date = forecast_date or pd.Timestamp.today().strftime("%Y-%m-%d")
@@ -211,15 +408,21 @@ def run_pipeline(forecast_date: str = None):
     iceberg_cluster = load_iceberg_cluster()
     print(f"Loaded {len(iceberg_cluster)} real tracked icebergs: {[e['id'] for e in iceberg_cluster]}")
 
-    tracks = run_drift_ensemble(iceberg_cluster)
+    tracks, source_info = run_drift_ensemble(iceberg_cluster)
+    print(f"Sea-ice source: {source_info['seaice']['source']}")
+    print(f"Forcing source: {source_info['forcing']['source']}")
     iceberg_risk = rasterize_iceberg_risk(tracks)
 
     if not BATHY_TIF.exists():
         raise FileNotFoundError(f"{BATHY_TIF} not found — run src/data/download_bathymetry.py first.")
     bathymetry = regrid_bathymetry(BATHY_TIF)
 
-    seaice_forecast = placeholder_seaice_concentration()
-    cost_grid = build_cost_grid(seaice_forecast, iceberg_risk, bathymetry)
+    seaice_forecast, _ = get_seaice_concentration()  # (n_days, n_lat, n_lon)
+    # A* plans one static route over one cost grid -- day-0 concentration
+    # is the representative field for that, same simplification as before
+    # this was a per-day stack. Day-by-day variation still reaches the
+    # sea-ice overlay images and the drift ensemble below.
+    cost_grid = build_cost_grid(seaice_forecast[0], iceberg_risk, bathymetry)
 
     # Start/goal: real open-water points bracketing the tracked cluster --
     # a southern approach near D33A/D33D and a northern approach near D32,
@@ -236,7 +439,7 @@ def run_pipeline(forecast_date: str = None):
 
     geojson_path = routes_to_geojson(optimized_latlon, naive_latlon, iceberg_cluster, tracks)
     seaice_paths = write_seaice_images(seaice_forecast)
-    manifest_path = write_manifest(forecast_date, iceberg_cluster, seaice_paths)
+    manifest_path = write_manifest(forecast_date, iceberg_cluster, seaice_paths, source_info)
     print(f"Pipeline complete. Optimized route: {len(optimized_path)} pts, "
           f"naive route: {len(naive_path)} pts. Outputs: {geojson_path}, {manifest_path}")
     return geojson_path
@@ -246,20 +449,21 @@ def write_seaice_images(seaice_forecast: np.ndarray, out_subdir: str = "seaice")
     """
     Render one georeferenced PNG per forecast day for the dashboard's
     Leaflet ImageOverlay layer (lighter than emitting ~5600 GeoJSON
-    polygons per day). Currently all days render the same placeholder
-    field (see module docstring) — once real day-by-day NSIDC/ConvLSTM
-    output exists, pass a (day, lat, lon) array here instead and this
-    loop needs no other changes.
+    polygons per day). `seaice_forecast` is (n_days, n_lat, n_lon) from
+    get_seaice_concentration() -- with the ConvLSTM checkpoint wired in,
+    each day is now a genuinely different predicted field; on the
+    persistence/placeholder fallback paths, every day is still the same
+    broadcast snapshot (disclosed in the manifest either way).
     """
     import matplotlib.cm as cm
 
     out_dir = OUTPUT_DIR / out_subdir
     out_dir.mkdir(parents=True, exist_ok=True)
-    rgba = (cm.Blues(seaice_forecast) * 255).astype(np.uint8)
 
     from PIL import Image
     paths = []
-    for day in range(GRID.forecast_horizon_days + 1):
+    for day in range(seaice_forecast.shape[0]):
+        rgba = (cm.Blues(seaice_forecast[day]) * 255).astype(np.uint8)
         img = Image.fromarray(rgba[::-1, :, :], mode="RGBA")  # flip: image row 0 = north
         out_path = out_dir / f"day_{day:02d}.png"
         img.save(out_path)
@@ -319,12 +523,14 @@ def routes_to_geojson(optimized_route, naive_route_pts, iceberg_cluster, tracks,
 
 
 def write_manifest(forecast_date: str, iceberg_cluster, seaice_image_paths=None,
-                    out_name: str = "manifest.json") -> Path:
+                    source_info=None, out_name: str = "manifest.json") -> Path:
     """Metadata the dashboard needs but that doesn't belong in the
     GeoJSON: domain bounds, forecast horizon, sea-ice overlay image
-    bounds/paths, and an explicit list of which inputs are still
-    placeholders so the frontend can show an honest disclosure badge
-    instead of silently implying everything is a real forecast."""
+    bounds/paths, and exactly which data sources fed this run (real vs.
+    fallback, and — for real data — persistence vs. true forecast) so
+    the frontend can show an accurate disclosure instead of a blanket
+    guess."""
+    source_info = source_info or {}
     manifest = {
         "forecast_date": forecast_date,
         "forecast_horizon_days": GRID.forecast_horizon_days,
@@ -332,7 +538,12 @@ def write_manifest(forecast_date: str, iceberg_cluster, seaice_image_paths=None,
                    "lat_min": GRID.lat_min, "lat_max": GRID.lat_max},
         "iceberg_ids": [e["id"] for e in iceberg_cluster],
         "seaice_images": seaice_image_paths or [],
-        "placeholder_inputs": PLACEHOLDER_INPUTS,
+        "data_sources": source_info,
+        "placeholder_inputs": [
+            v for v in ["sea_ice_concentration", "wind_field", "current_field"]
+            if not (source_info.get("seaice", {}).get("is_real_data") if "sea_ice" in v
+                    else source_info.get("forcing", {}).get("is_real_data"))
+        ],
         "generated_at": pd.Timestamp.now().isoformat(),
     }
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

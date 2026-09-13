@@ -1,10 +1,6 @@
 // Thin fetch wrappers around the FastAPI backend (src/backend/app.py).
-// The backend only allows CORS from the Vite dev server origin(s), so this
-// must be run via `npm run dev` (port 5173) while the API runs on :8001.
-// (Not :8000 -- this dev machine has a stuck orphaned listener on 8000
-// from an earlier session that the OS won't release; 8001 is the one
-// that's actually free. Change both here and in src/backend/app.py's run
-// instructions together if you ever move off 8001.)
+// The backend allows CORS from any localhost/127.0.0.1 origin (regex-based),
+// so this works regardless of which port Vite dev server picks.
 
 export const API_BASE = 'http://localhost:8001'
 
@@ -21,12 +17,38 @@ export function fetchManifest() {
   return getJSON('/api/manifest')
 }
 
-/** GET /api/routes -> GeoJSON FeatureCollection */
-export function fetchRoutes() {
-  return getJSON('/api/routes')
+/** GET /api/ice_classes -> { key: {label, max_safe_concentration, seaice_weight_multiplier}, ... } */
+export function fetchIceClasses() {
+  return getJSON('/api/ice_classes')
 }
 
-/** Build the absolute URL for a sea-ice overlay PNG, e.g. "seaice/day_00.png" */
-export function seaIceImageUrl(relativePath) {
+/** Build the absolute URL for a file under outputs/, e.g. "seaice/day_00.png" */
+export function outputUrl(relativePath) {
   return `${API_BASE}/outputs/${relativePath}`
+}
+
+/**
+ * POST /api/plan_journey. Throws an Error whose .message is the backend's
+ * human-readable `detail` string on a 400 (e.g. "no feasible route..."),
+ * so callers can render it directly rather than a generic failure.
+ */
+export async function planJourney(payload) {
+  let res
+  try {
+    res = await fetch(`${API_BASE}/api/plan_journey`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  } catch {
+    throw new Error(
+      `Could not reach the backend at ${API_BASE}. Is uvicorn running?`,
+    )
+  }
+
+  const body = await res.json().catch(() => null)
+  if (!res.ok) {
+    throw new Error(body?.detail || `Request failed (HTTP ${res.status}).`)
+  }
+  return body
 }

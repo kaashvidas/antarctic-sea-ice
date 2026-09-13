@@ -10,12 +10,17 @@ Run: uvicorn src.backend.app:app --reload --port 8001
 (port 8000 is avoided on this dev machine -- see dashboard/README.md)
 """
 
+import sys
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import Response
+from pydantic import BaseModel
+
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+from src.integration.journey_report import plan_journey, ICE_CLASS_PROFILES  # noqa: E402
 
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "outputs"
 
@@ -30,7 +35,7 @@ app = FastAPI(title="Antarctic Navigation Platform API")
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -60,6 +65,46 @@ def get_routes():
             detail="No routes.geojson yet — run `python -m src.integration.pipeline` first.",
         )
     return Response(content=routes_path.read_text(), media_type="application/json")
+
+
+class LatLon(BaseModel):
+    lat: float
+    lon: float
+
+
+class JourneyRequest(BaseModel):
+    start: LatLon
+    goal: LatLon
+    departure_time: str
+    vessel_speed_kmh: float
+    ice_class: str
+
+
+@app.get("/api/ice_classes")
+def get_ice_classes():
+    """Lets the frontend populate the ice-class dropdown from the same
+    table the router actually uses, instead of a hand-copied duplicate."""
+    return ICE_CLASS_PROFILES
+
+
+@app.post("/api/plan_journey")
+def post_plan_journey(req: JourneyRequest):
+    """
+    Computes a real route for the given start/goal/vessel — synchronous,
+    not precomputed (see journey_report.py's module docstring for why).
+    A full drift-ensemble + A* run on this grid takes ~1-2s, so no job
+    queue is needed at this scale.
+    """
+    try:
+        return plan_journey(
+            start={"lat": req.start.lat, "lon": req.start.lon},
+            goal={"lat": req.goal.lat, "lon": req.goal.lon},
+            departure_time=req.departure_time,
+            vessel_speed_kmh=req.vessel_speed_kmh,
+            ice_class=req.ice_class,
+        )
+    except (ValueError, FileNotFoundError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # Serves outputs/seaice/day_NN.png etc. directly at /outputs/seaice/day_NN.png

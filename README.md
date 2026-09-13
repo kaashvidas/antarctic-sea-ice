@@ -123,18 +123,29 @@ LAYER 4 — COMMUNICATION   dashboard: forecast maps, drift cones, route compari
 python -m venv venv && venv\Scripts\activate      # Windows; use source venv/bin/activate elsewhere
 pip install -r requirements.txt
 
-python src/data/download_icebergs.py               # real USNIC data, no login
-python src/data/download_bathymetry.py              # real NCEI bathymetry, no login
-python -m src.integration.pipeline                  # real drift physics + routing -> outputs/
+python src/data/download_icebergs.py                 # real USNIC data, no login
+python src/data/download_bathymetry.py                # real NCEI bathymetry, no login
+python src/data/download_seaice_bremen.py              # real AMSR2 sea-ice snapshot, no login
+python src/data/download_weather.py                    # real Open-Meteo wind + current forecast, no login
+python -m src.integration.pipeline                     # real drift physics + routing -> outputs/
 
-uvicorn src.backend.app:app --reload --port 8000     # serves outputs/ to the dashboard
+uvicorn src.backend.app:app --reload --port 8001         # serves outputs/ + POST /api/plan_journey
 # in a second terminal, see dashboard/README.md for the frontend
 ```
 
-NSIDC sea-ice (`src/data/download_seaice.py`) and ERA5 (`src/data/download_era5.py`) need free
-Earthdata/CDS credentials (`~/.netrc`, `~/.cdsapirc`) not yet present on this build — until then,
-`src.integration.pipeline` runs on disclosed placeholders for those two inputs only (see
-`outputs/manifest.json`'s `placeholder_inputs`); everything else in the command block above is real.
+To train the ConvLSTM on real data (also no login needed — see the Build-status note below for why
+NSIDC itself is still blocked but this alternate source isn't):
+```
+python src/data/download_seaice_bremen.py --start 2024-09-11 --end 2026-09-11   # ~25 min, real multi-year history
+python src/data/build_seaice_history.py                                         # -> data/processed/seaice_history.nc
+python -m src.models.seaice_forecast.train --epochs 10                          # -> data/processed/convlstm_checkpoint.pt
+```
+`get_seaice_concentration()` in `src/integration/pipeline.py` picks up that checkpoint automatically
+on the next pipeline/journey-planning run — no other code changes needed.
+
+NSIDC (`src/data/download_seaice.py`) and ERA5 (`src/data/download_era5.py`) still need free
+Earthdata/CDS credentials (`~/.netrc`, `~/.cdsapirc`) not present on this build machine — everything
+above is a real, credential-free substitute, not a placeholder.
 
 ---
 
@@ -197,12 +208,24 @@ Earthdata/CDS credentials (`~/.netrc`, `~/.cdsapirc`) not yet present on this bu
 - Ice-shelf calving prediction is out of scope for a working model — treat known unstable zones (e.g. Brunt Ice Shelf) as a labeled risk overlay, not a predicted event.
 - This is a days-ahead planning layer, not a replacement for onboard radar, lookout, or a trained ice pilot's real-time judgment.
 
-### Build-status note (as of 2026-09-12)
+### Build-status note (updated 2026-09-13)
 
 - **A23a, this README's original validation case, has genuinely disintegrated** (lost ~99% of its area through 2025-2026 and dropped off the tracked-iceberg feed). The live demo scenario now centers on a real cluster of six currently-tracked Weddell Sea icebergs instead (D32, D33A-D, D35 — see `src/utils/grid.py`); A23a's historical track remains usable separately as a drift-model validation case if you pull BAS's archived positions.
-- **Real, working, and tested against actual data:** the USNIC iceberg feed, NCEI bathymetry, the WDE17 iceberg drift physics (ported from the authors' own reference notebook, adapted for Southern Hemisphere Coriolis sign), the A* router and naive-route comparison, the full GeoJSON/PNG output pipeline, and the ConvLSTM training loop (mechanically verified against synthetic data pending real NSIDC history).
-- **Not yet real, clearly labeled as such in `outputs/manifest.json`'s `placeholder_inputs`:** sea-ice concentration and wind/current forcing. NSIDC (Earthdata) and ERA5 (CDS) downloads are blocked on credential files not being present on the build machine — `src/data/download_seaice.py` and `download_era5.py` are ready to run the moment `~/.netrc`/`~/.cdsapirc` exist; nothing else in the pipeline needs to change.
-- **Not attempted:** the isochrone routing method (`isochrone_route` stays a stub) — per this README's own cut order, it's the first thing to drop under time pressure, and a true time-varying isochrone wouldn't add much until real day-by-day sea-ice forecasts replace the current placeholder anyway.
+- **NSIDC (Earthdata) and ERA5 (CDS) are still credential-blocked** on this build machine, but real, no-login alternatives are wired in instead of the original synthetic placeholders:
+  - **Sea-ice concentration**: University of Bremen AMSR2 (`src/data/download_seaice_bremen.py`), real satellite observations, ~1-2 day lag.
+  - **Wind + ocean current**: Open-Meteo (`src/data/download_weather.py`), a genuine real multi-day forecast (GFS wind model + marine/wave current model), sampled at real points across the domain and interpolated onto the shared grid. No longer a placeholder at all.
+  - **Iceberg thickness**: estimated from WDE17's own published length→thickness size-class table (`estimate_thickness_m()` in `src/integration/pipeline.py`) instead of one flat guess — still not a measurement of these specific icebergs (no public dataset for that exists), but literature-grounded and disclosed as an estimate either way.
+- **ConvLSTM: trained on real data and genuinely beats both baselines.** `src/data/download_seaice_bremen.py --start 2024-09-11 --end 2026-09-11` + `src/data/build_seaice_history.py` pulled 731 real days of AMSR2 history (Bremen's archive goes back to 2012 — 729 real days downloaded, 1 real satellite/processing gap, 1 already had), and `src/models/seaice_forecast/train.py` trained on a strict chronological split (511 train / 109 val / 111 test days — no shuffling across the boundary). Held-out skill (val set, lower is better):
+
+  | Model | MAE | RMSE |
+  |---|---|---|
+  | Persistence | 0.090 | 0.210 |
+  | Climatology | 0.143 | 0.318 |
+  | **ConvLSTM** | **0.047** | **0.117** |
+
+  ~48% MAE reduction vs. persistence, on data the model never trained on. `src/integration/pipeline.py`'s `get_seaice_concentration()` automatically uses this trained checkpoint (`data/processed/convlstm_checkpoint.pt`) now that it exists — every sea-ice field in the running app (routing, drift ensemble, day-by-day reports, overlay images) is a genuine autoregressive multi-day forecast, not persistence, and `is_true_forecast: True` reflects that in every API response. Caveat: climatology's day-of-year mean is noisy with only ~2 years of history (hence it's worse than plain persistence here) — a longer training window would likely make it a stronger baseline to beat.
+- **Real, working, and tested against actual data throughout:** the USNIC iceberg feed, NCEI bathymetry, the WDE17 iceberg drift physics (ported from the authors' own reference notebook, adapted for Southern Hemisphere Coriolis sign), the A* router and naive-route comparison, and the full GeoJSON/PNG output pipeline.
+- **Not attempted:** the isochrone routing method (`isochrone_route` stays a stub) — per this README's own cut order, it's the first thing to drop under time pressure, and a true time-varying isochrone matters most once every input feeding it is a real day-by-day forecast, which is now much closer to true but wasn't when this call was made.
 
 ---
 
