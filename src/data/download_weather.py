@@ -38,6 +38,8 @@ RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "weather"
 
 WIND_URL = "https://api.open-meteo.com/v1/gfs"
 CURRENT_URL = "https://marine-api.open-meteo.com/v1/marine"
+WIND_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+CURRENT_ARCHIVE_URL = "https://marine-api.open-meteo.com/v1/marine"  # same endpoint, start_date/end_date instead of forecast_days
 
 # Coarse sample grid of representative points across GRID's bounding box —
 # deliberately much sparser than the 0.25deg analysis grid (100x56 cells
@@ -133,6 +135,95 @@ def download_current(forecast_days: int = None, out_dir: Path = RAW_DIR) -> Path
     return out_path
 
 
+def download_wind_historical(start_date: str, end_date: str, out_dir: Path = RAW_DIR) -> Path:
+    """Real historical wind (archive-api.open-meteo.com, a separate endpoint
+    from the forecast one, same no-login access) for ConvLSTM training --
+    matches seaice_history.nc's date range so the model can use real
+    weather as an input channel, not just concentration history."""
+    lats, lons = _sample_points()
+    resp = requests.get(
+        WIND_ARCHIVE_URL,
+        params={
+            "latitude": ",".join(f"{v:.3f}" for v in lats),
+            "longitude": ",".join(f"{v:.3f}" for v in lons),
+            "start_date": start_date, "end_date": end_date,
+            "hourly": "wind_speed_10m,wind_direction_10m",
+            "wind_speed_unit": "ms",
+        },
+        timeout=60,
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f"Open-Meteo wind archive request failed (status {resp.status_code}): {resp.text[:300]}")
+
+    rows = []
+    payload = resp.json()
+    payload = payload if isinstance(payload, list) else [payload]
+    for point in payload:
+        times = pd.to_datetime(point["hourly"]["time"])
+        speed = np.array(point["hourly"]["wind_speed_10m"], dtype=float)
+        direction = np.array(point["hourly"]["wind_direction_10m"], dtype=float)
+        u = -speed * np.sin(np.radians(direction))
+        v = -speed * np.cos(np.radians(direction))
+        df = pd.DataFrame({"date": times.date, "wind_u": u, "wind_v": v})
+        daily = df.groupby("date")[["wind_u", "wind_v"]].mean().reset_index()
+        daily["lat"], daily["lon"] = point["latitude"], point["longitude"]
+        rows.append(daily)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "wind_historical_openmeteo.csv"
+    pd.concat(rows, ignore_index=True).to_csv(out_path, index=False)
+    print(f"Saved {out_path} ({len(rows)} sample points x {start_date}..{end_date})")
+    return out_path
+
+
+def download_current_historical(start_date: str, end_date: str, out_dir: Path = RAW_DIR) -> Path:
+    """Real historical ocean current, same rationale as download_wind_historical."""
+    lats, lons = _sample_points()
+    resp = requests.get(
+        CURRENT_ARCHIVE_URL,
+        params={
+            "latitude": ",".join(f"{v:.3f}" for v in lats),
+            "longitude": ",".join(f"{v:.3f}" for v in lons),
+            "start_date": start_date, "end_date": end_date,
+            "hourly": "ocean_current_velocity,ocean_current_direction",
+        },
+        timeout=60,
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f"Open-Meteo marine archive request failed (status {resp.status_code}): {resp.text[:300]}")
+
+    rows = []
+    payload = resp.json()
+    payload = payload if isinstance(payload, list) else [payload]
+    for point in payload:
+        times = pd.to_datetime(point["hourly"]["time"])
+        speed_ms = np.array(point["hourly"]["ocean_current_velocity"], dtype=float) / 3.6
+        direction = np.array(point["hourly"]["ocean_current_direction"], dtype=float)
+        u = speed_ms * np.sin(np.radians(direction))
+        v = speed_ms * np.cos(np.radians(direction))
+        df = pd.DataFrame({"date": times.date, "current_u": u, "current_v": v})
+        daily = df.groupby("date")[["current_u", "current_v"]].mean().reset_index()
+        daily["lat"], daily["lon"] = point["latitude"], point["longitude"]
+        rows.append(daily)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "current_historical_openmeteo.csv"
+    pd.concat(rows, ignore_index=True).to_csv(out_path, index=False)
+    print(f"Saved {out_path} ({len(rows)} sample points x {start_date}..{end_date})")
+    return out_path
+
+
 if __name__ == "__main__":
-    download_wind()
-    download_current()
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--start", help="YYYY-MM-DD -- if given with --end, pull real HISTORICAL wind+current instead")
+    parser.add_argument("--end", help="YYYY-MM-DD")
+    args = parser.parse_args()
+
+    if args.start and args.end:
+        download_wind_historical(args.start, args.end)
+        download_current_historical(args.start, args.end)
+    else:
+        download_wind()
+        download_current()

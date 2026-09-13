@@ -161,46 +161,75 @@ def placeholder_forcing_fields():
 def _run_convlstm_forecast(horizon_days: int):
     """
     Real autoregressive ConvLSTM inference: load the trained checkpoint,
-    feed it the most recent `input_seq_len` real days from
-    data/processed/seaice_history.nc, and roll it forward day by day —
-    each day's prediction becomes the newest frame for the next step, per
+    feed it the most recent `input_seq_len` real days of history, and
+    roll it forward day by day -- each day's PREDICTED concentration
+    becomes the newest concentration frame for the next step, per
     convlstm.py's own docstring. Returns a (horizon_days+1, n_lat, n_lon)
     array (day 0 = the last real observation, days 1..horizon_days =
     genuine model predictions), or raises if the checkpoint/history
     aren't usable, so the caller can fall back cleanly.
+
+    If the checkpoint was trained with extra channels (checkpoint's
+    `extra_vars`, e.g. wind_u/wind_v/current_u/current_v -- see
+    src/data/merge_weather_into_history.py and train.py's --extra-vars),
+    those channels are reconstructed from REAL data at every step, not
+    guessed: real historical values for the input tail, real Open-Meteo
+    FORECAST values (get_forcing_fields(), the same real forecast the
+    rest of the app already uses) for the future days as the
+    autoregressive window slides into them. Only the concentration
+    channel is ever the model's own prediction feeding back in.
     """
     import torch
     from src.models.seaice_forecast.convlstm import SeaIceConvLSTM
 
-    history_path = DATA_DIR / "processed" / "seaice_history.nc"
+    checkpoint = torch.load(CONVLSTM_CHECKPOINT, map_location="cpu")
+    extra_vars = checkpoint.get("extra_vars", [])
+    input_seq_len = checkpoint.get("input_seq_len", 7)
+
+    history_name = "seaice_history_with_weather.nc" if extra_vars else "seaice_history.nc"
+    history_path = DATA_DIR / "processed" / history_name
     if not history_path.exists():
         raise FileNotFoundError(
             f"{history_path} not found — run src/data/build_seaice_history.py "
-            "after downloading real history with download_seaice_bremen.py's --start/--end."
+            "(and src/data/merge_weather_into_history.py if this checkpoint uses extra_vars) first."
         )
 
     import xarray as xr
     ds = xr.open_dataset(history_path)
-    input_seq_len = 7
     if ds.sizes["time"] < input_seq_len:
         raise ValueError(f"History has only {ds.sizes['time']} days, need >= {input_seq_len}.")
 
-    checkpoint = torch.load(CONVLSTM_CHECKPOINT, map_location="cpu")
-    model = SeaIceConvLSTM(input_dim=1)
+    model = SeaIceConvLSTM(input_dim=1 + len(extra_vars))
     model.load_state_dict(checkpoint["model_state_dict"] if "model_state_dict" in checkpoint else checkpoint)
     model.eval()
 
-    window = ds["cdr_seaice_conc"].isel(time=slice(-input_seq_len, None)).values.astype(np.float32)
+    conc_window = ds["cdr_seaice_conc"].isel(time=slice(-input_seq_len, None)).values.astype(np.float32)
     last_obs_date = str(ds["time"].values[-1])[:10]
-    frames = [window[-1]]  # day 0 = last real observation
+
+    extra_seq = {}
+    if extra_vars:
+        hist_tail = {v: ds[v].isel(time=slice(-input_seq_len, None)).values.astype(np.float32) for v in extra_vars}
+        wind_u_f, wind_v_f, current_u_f, current_v_f, _ = get_forcing_fields(horizon_days)
+        future_map = {"wind_u": wind_u_f, "wind_v": wind_v_f, "current_u": current_u_f, "current_v": current_v_f}
+        for v in extra_vars:
+            # [real historical tail] + [real forecast days 1..horizon] -- day 0 of the
+            # forecast is dropped since it duplicates "today", already the tail's last frame.
+            extra_seq[v] = np.concatenate([hist_tail[v], future_map[v][1:horizon_days + 1]], axis=0)
+
+    frames = [conc_window[-1]]  # day 0 = last real observation
+    channel_window = conc_window  # (input_seq_len, H, W), concentration only -- this is what autoregresses
 
     with torch.no_grad():
-        x_seq = torch.from_numpy(window).unsqueeze(0).unsqueeze(2)  # (1, seq, 1, H, W)
-        for _ in range(horizon_days):
+        for step in range(horizon_days):
+            if extra_vars:
+                x_np = np.stack([channel_window] + [extra_seq[v][step:step + input_seq_len] for v in extra_vars],
+                                 axis=1)  # (seq, channels, H, W)
+            else:
+                x_np = channel_window[:, np.newaxis]  # (seq, 1, H, W)
+            x_seq = torch.from_numpy(x_np).unsqueeze(0)  # (1, seq, C, H, W)
             pred = model(x_seq).squeeze(0).squeeze(0).numpy()  # (H, W)
             frames.append(pred)
-            next_frame = torch.from_numpy(pred).unsqueeze(0).unsqueeze(0).unsqueeze(0)  # (1,1,1,H,W)
-            x_seq = torch.cat([x_seq[:, 1:], next_frame], dim=1)
+            channel_window = np.concatenate([channel_window[1:], pred[np.newaxis]], axis=0)
 
     return np.stack(frames, axis=0), last_obs_date
 
@@ -224,13 +253,23 @@ def get_seaice_concentration(horizon_days: int = None):
 
     if CONVLSTM_CHECKPOINT.exists():
         try:
+            import torch
+            ckpt_meta = torch.load(CONVLSTM_CHECKPOINT, map_location="cpu")
+            extra_vars = ckpt_meta.get("extra_vars", [])
+            input_seq_len = ckpt_meta.get("input_seq_len", 7)
+            held_out_skill = ckpt_meta.get("held_out_skill")
+
             stack, last_obs_date = _run_convlstm_forecast(horizon_days)
             return stack, {
                 "variable": "sea_ice_concentration",
                 "source": "Trained ConvLSTM (src/models/seaice_forecast/convlstm.py), "
                           "real multi-day autoregressive forecast",
                 "observation_date": last_obs_date,
-                "method": f"autoregressive rollout from the last {7} real observed days",
+                "input_channels": ["sea_ice_concentration (AMSR2)"] + [
+                    f"{v} (Open-Meteo, real historical+forecast)" for v in extra_vars
+                ],
+                "method": f"autoregressive rollout from the last {input_seq_len} real observed days",
+                "held_out_skill": held_out_skill,
                 "is_real_data": True,
                 "is_true_forecast": True,
             }
@@ -363,6 +402,12 @@ def rasterize_iceberg_risk(tracks: dict) -> np.ndarray:
     per-cell max across all icebergs/members/days, then normalize. Max
     (not sum) so a route is penalized for entering ANY iceberg's swept
     area, not artificially double-penalized where cones overlap.
+
+    This is the ALL-TIME aggregate (a cell is risky if any iceberg passes
+    through it on ANY day) -- used by the static single-cost-grid A*
+    fallback. isochrone_route() below needs per-day risk instead (a route
+    that would arrive at a cell on day 6 shouldn't be penalized for where
+    an iceberg was on day 1) -- see rasterize_iceberg_risk_per_day().
     """
     n_lon, n_lat = n_grid_cells()
     risk = np.zeros((n_lat, n_lon), dtype=np.float32)
@@ -376,6 +421,34 @@ def rasterize_iceberg_risk(tracks: dict) -> np.ndarray:
                 d2 = (lat_grid - lat) ** 2 + (lon_grid - lon) ** 2
                 blob = np.exp(-d2 / (2 * sigma_deg ** 2))
                 risk = np.maximum(risk, blob)
+    return risk
+
+
+def rasterize_iceberg_risk_per_day(tracks: dict, horizon_days: int = None) -> np.ndarray:
+    """
+    Same Gaussian-blob approach as rasterize_iceberg_risk(), but keeping
+    each forecast day separate: returns (n_days, n_lat, n_lon), where day
+    d's risk grid only reflects where the drift ensemble predicts icebergs
+    to actually BE on day d -- not a blanket "was near this cell at some
+    point in the whole horizon" risk. This is what lets isochrone_route()
+    reason about the real iceberg drift trajectory over time, not just a
+    static exclusion zone.
+    """
+    horizon_days = horizon_days if horizon_days is not None else GRID.forecast_horizon_days
+    n_lon, n_lat = n_grid_cells()
+    lats, lons = lat_lon_mesh()
+    lat_grid, lon_grid = np.meshgrid(lats, lons, indexing="ij")
+    sigma_deg = 2 * GRID.resolution_deg
+
+    risk = np.zeros((horizon_days + 1, n_lat, n_lon), dtype=np.float32)
+    for member_tracks in tracks.values():
+        for track in member_tracks:
+            for day, (lat, lon) in enumerate(track):
+                if day > horizon_days:
+                    break
+                d2 = (lat_grid - lat) ** 2 + (lon_grid - lon) ** 2
+                blob = np.exp(-d2 / (2 * sigma_deg ** 2))
+                risk[day] = np.maximum(risk[day], blob)
     return risk
 
 

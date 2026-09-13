@@ -125,12 +125,18 @@ if __name__ == "__main__":
     parser.add_argument("--input-seq-len", type=int, default=7)
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--extra-vars", default="",
+                         help="Comma-separated extra input channels beyond concentration, e.g. "
+                              "'wind_u,wind_v,current_u,current_v' -- must exist as variables in "
+                              "--processed-path (see src/data/merge_weather_into_history.py). "
+                              "Empty (default) trains concentration-only.")
     parser.add_argument("--save-checkpoint", default="data/processed/convlstm_checkpoint.pt",
                          help="Where to save the trained model — src/integration/pipeline.py's "
                               "get_seaice_concentration() looks for a checkpoint at exactly this "
                               "default path and switches from persistence to real inference "
                               "the moment one exists.")
     args = parser.parse_args()
+    extra_vars = [v.strip() for v in args.extra_vars.split(",") if v.strip()]
 
     if not Path(args.processed_path).exists():
         print(
@@ -146,13 +152,15 @@ if __name__ == "__main__":
     train_sl, val_sl, test_sl = chronological_splits(n_time)
     print(f"{n_time} total days -> train={train_sl}, val={val_sl}, test={test_sl}")
 
-    train_ds = SeaIceSequenceDataset(args.processed_path, args.input_seq_len, time_slice=train_sl)
-    val_ds = SeaIceSequenceDataset(args.processed_path, args.input_seq_len, time_slice=val_sl)
+    if extra_vars:
+        print(f"Training WITH real extra input channels: {extra_vars}")
+    train_ds = SeaIceSequenceDataset(args.processed_path, args.input_seq_len, extra_vars=extra_vars, time_slice=train_sl)
+    val_ds = SeaIceSequenceDataset(args.processed_path, args.input_seq_len, extra_vars=extra_vars, time_slice=val_sl)
 
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=False)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False)
 
-    model = SeaIceConvLSTM(input_dim=1)
+    model = SeaIceConvLSTM(input_dim=1 + len(extra_vars))
     model = train(model, train_loader, val_loader, epochs=args.epochs)
 
     # Compare against baselines on the same held-out (val) window — the
@@ -205,6 +213,7 @@ if __name__ == "__main__":
     torch.save({
         "model_state_dict": model.state_dict(),
         "input_seq_len": args.input_seq_len,
+        "extra_vars": extra_vars,  # pipeline.py's inference must reconstruct the SAME channels, same order
         "trained_on": args.processed_path,
         "n_train_days": int(train_sl.stop - train_sl.start),
         "held_out_skill": {k: {mk: float(mv) for mk, mv in v.items()} for k, v in skill.items()},

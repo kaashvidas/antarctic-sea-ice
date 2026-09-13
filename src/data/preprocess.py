@@ -237,6 +237,52 @@ def interpolate_weather_samples(wind_csv, current_csv):
     )
 
 
+def interpolate_weather_samples_historical(wind_csv, current_csv, dates):
+    """
+    Same real-point-sample interpolation as interpolate_weather_samples(),
+    but keyed by actual calendar date (download_weather.py's
+    download_*_historical() output) instead of a relative forecast-day
+    index -- needed to align real historical wind/current onto the exact
+    same date axis as seaice_history.nc for ConvLSTM training with
+    weather as an input channel.
+
+    dates : iterable of date-like values (e.g. seaice_history.nc's `time`
+        coordinate) to interpolate for, in order -- output arrays are
+        indexed to match this sequence exactly.
+    """
+    from scipy.interpolate import griddata
+
+    target_lats, target_lons = lat_lon_mesh()
+    target_lat_grid, target_lon_grid = np.meshgrid(target_lats, target_lons, indexing="ij")
+    n_lat, n_lon = len(target_lats), len(target_lons)
+
+    wind_df = pd.read_csv(wind_csv, parse_dates=["date"])
+    current_df = pd.read_csv(current_csv, parse_dates=["date"])
+    dates = pd.to_datetime(pd.Index(dates)).normalize()
+
+    def _interp_all_dates(df, value_col):
+        out = np.zeros((len(dates), n_lat, n_lon), dtype=np.float32)
+        for i, date in enumerate(dates):
+            day_df = df[df["date"].dt.normalize() == date]
+            if day_df.empty:
+                out[i] = out[i - 1] if i > 0 else 0.0  # real data gap -- hold last real day, disclosed via caller
+                continue
+            points = day_df[["lat", "lon"]].values
+            values = day_df[value_col].values
+            out[i] = griddata(points, values, (target_lat_grid, target_lon_grid), method="linear")
+            nan_mask = np.isnan(out[i])
+            if nan_mask.any():
+                out[i][nan_mask] = griddata(
+                    points, values, (target_lat_grid[nan_mask], target_lon_grid[nan_mask]), method="nearest"
+                )
+        return out
+
+    return (
+        _interp_all_dates(wind_df, "wind_u"), _interp_all_dates(wind_df, "wind_v"),
+        _interp_all_dates(current_df, "current_u"), _interp_all_dates(current_df, "current_v"),
+    )
+
+
 def save_processed(ds: xr.Dataset, name: str) -> Path:
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     out_path = PROCESSED_DIR / f"{name}.nc"

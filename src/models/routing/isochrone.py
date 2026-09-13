@@ -21,6 +21,24 @@ import heapq
 import numpy as np
 
 
+def build_cost_grid_stack(seaice_forecast_stack, iceberg_risk_stack, bathymetry, weights: dict = None) -> np.ndarray:
+    """
+    Day-by-day version of build_cost_grid() -- one real cost grid per
+    forecast day, from real per-day sea-ice concentration
+    (src.integration.pipeline.get_seaice_concentration()) and real
+    per-day iceberg drift risk (pipeline.rasterize_iceberg_risk_per_day()),
+    not a single static snapshot. This is what isochrone_route() needs to
+    actually reason about *when* the ship would be somewhere, not just
+    where -- a route arriving at a cell on day 6 gets judged against day
+    6's real forecast, not day 0's.
+    """
+    n_days = min(seaice_forecast_stack.shape[0], iceberg_risk_stack.shape[0])
+    return np.stack([
+        build_cost_grid(seaice_forecast_stack[d], iceberg_risk_stack[d], bathymetry, weights=weights)
+        for d in range(n_days)
+    ], axis=0)
+
+
 def build_cost_grid(seaice_forecast, iceberg_risk, bathymetry, weights: dict = None) -> np.ndarray:
     """
     Combine the three risk/feasibility layers into a single cost grid for
@@ -120,19 +138,137 @@ def naive_route(start: tuple, goal: tuple) -> list:
     ]
 
 
-def isochrone_route(cost_grid: np.ndarray, start: tuple, goal: tuple, time_step: float = 1.0) -> list:
+def isochrone_route(cost_grid_by_day: np.ndarray, bathymetry: np.ndarray, start: tuple, goal: tuple,
+                     vessel_speed_kmh: float, resolution_km: float,
+                     time_step_hours: float = 6.0, max_days: int = None) -> tuple:
     """
-    Stretch goal: proper isochrone method (expanding a reachable-set
-    wavefront under the cost field, per the isochrone paper in the
-    README), which better represents how real ship-routing software
-    reasons about time-varying conditions than a static-grid A* does.
+    Real time-stepped wavefront (isochrone) routing, per the isochrone
+    paper cited in README.md: expands outward from `start` in sub-daily
+    steps, each step limited to however far the vessel can actually
+    travel at vessel_speed_kmh in time_step_hours, using that step's REAL
+    day-specific cost grid -- not one static snapshot for the whole
+    voyage like astar_route(). A route arriving at a cell on day 6 is
+    judged against day 6's real sea-ice/iceberg-risk forecast, not day
+    0's; this is the entire point of the isochrone method over plain A*.
 
-    Only attempt this after astar_route() is working end-to-end — per the
-    README's cut order, isochrone is the first thing to fall back away
-    from under time pressure, and a complete A* pipeline beats an
-    incomplete isochrone one.
+    Parameters
+    ----------
+    cost_grid_by_day : (n_days, n_lat, n_lon), from build_cost_grid_stack()
+    bathymetry : (n_lat, n_lon) -- used to feasibility-check every
+        intermediate cell a multi-cell hop passes over, since a hop can
+        skip several cells at once and build_cost_grid's np.inf marking
+        only guarantees the ENDPOINTS were checked when the stack was built
+    start, goal : (row, col) grid indices
+    vessel_speed_kmh, resolution_km : real km/h and real km-per-grid-cell
+        (src.utils.grid.GRID.resolution_deg * 111, the lat-direction
+        conversion -- used for both directions as a deliberately
+        conservative approximation, since a degree of longitude is
+        physically shorter than a degree of latitude at these southern
+        latitudes; this slightly under-estimates how far the ship can
+        reach east-west per step rather than over-estimating it)
+    max_days : stop expanding past this many days; defaults to the
+        forecast horizon plus 3 days of slack (any time beyond
+        cost_grid_by_day's real coverage reuses its last available day,
+        same persistence-extension convention as the rest of the
+        pipeline once real data runs out)
+
+    Returns (path, arrival_hours) where path is a list of (row, col) from
+    start to goal and arrival_hours is the real total travel time.
+
+    Known simplification (disclosed, not hidden): the search keeps only
+    the single best (lowest-cost) arrival at each grid cell, not one per
+    (cell, day) pair. That's the right choice for "cheapest route" but
+    means the algorithm won't consider deliberately waiting somewhere to
+    catch better conditions later -- a genuine isochrone/weather-routing
+    system for a real vessel might do that; this one doesn't yet.
     """
-    raise NotImplementedError(
-        "Implement after astar_route() works end-to-end; see the isochrone "
-        "paper cited in README.md for the wavefront-expansion algorithm."
+    n_days, n_lat, n_lon = cost_grid_by_day.shape
+    max_days = max_days if max_days is not None else n_days + 3
+
+    max_step_km = vessel_speed_kmh * time_step_hours
+    max_step_cells = max(1, int(np.ceil(max_step_km / resolution_km)))
+
+    # Candidate hop offsets within one time step's real reach.
+    offsets = []
+    for dr in range(-max_step_cells, max_step_cells + 1):
+        for dc in range(-max_step_cells, max_step_cells + 1):
+            if dr == 0 and dc == 0:
+                continue
+            cell_dist = float(np.hypot(dr, dc))
+            if cell_dist <= max_step_cells:
+                offsets.append((dr, dc, cell_dist))
+
+    def day_grid(hours_elapsed):
+        day = min(int(hours_elapsed // 24), n_days - 1)
+        return cost_grid_by_day[day]
+
+    def line_cost_and_feasible(r0, c0, r1, c1, grid):
+        """Sample the straight-line hop; infeasible if any sampled cell
+        (grid cost OR raw bathymetry) is inf/too-shallow/out of bounds.
+
+        Deliberately skips t=0 (the ORIGIN cell, i.e. wherever the ship
+        already is) -- matching astar_route()'s own convention of never
+        cost-checking the start cell, only cells being moved INTO. A real
+        start point can land on a cell that's marginal/infeasible for a
+        given vessel's ice-class cutoff (the snapped-to-open-water start
+        just needs bathymetry clearance, not a guarantee of being under
+        every vessel's safe ice threshold too) -- the ship still needs to
+        be ABLE to depart from wherever it actually starts.
+        """
+        n_samples = max(2, int(np.hypot(r1 - r0, c1 - c0)) + 1)
+        costs = []
+        for t in np.linspace(0.0, 1.0, n_samples):
+            if t == 0.0:
+                continue
+            r = int(round(r0 + (r1 - r0) * t))
+            c = int(round(c0 + (c1 - c0) * t))
+            if not (0 <= r < n_lat and 0 <= c < n_lon):
+                return None, False
+            if bathymetry[r, c] > -10:
+                return None, False
+            v = grid[r, c]
+            if not np.isfinite(v):
+                return None, False
+            costs.append(v)
+        return float(np.mean(costs)), True
+
+    frontier = [(0.0, 0.0, start)]  # (cumulative_cost, hours_elapsed, cell)
+    best_cost = {start: 0.0}
+    came_from = {}
+    arrival_hours = {start: 0.0}
+
+    while frontier:
+        cum_cost, hours, current = heapq.heappop(frontier)
+        if cum_cost > best_cost.get(current, np.inf):
+            continue  # stale queue entry, a cheaper route to `current` was already found
+        if current == goal:
+            path = [current]
+            while current in came_from:
+                current = came_from[current]
+                path.append(current)
+            return path[::-1], arrival_hours[goal]
+        if hours >= max_days * 24:
+            continue
+
+        grid = day_grid(hours)
+        r0, c0 = current
+        for dr, dc, cell_dist in offsets:
+            r1, c1 = r0 + dr, c0 + dc
+            if not (0 <= r1 < n_lat and 0 <= c1 < n_lon):
+                continue
+            mean_cost, feasible = line_cost_and_feasible(r0, c0, r1, c1, grid)
+            if not feasible:
+                continue
+            new_cost = cum_cost + mean_cost * cell_dist
+            new_time = hours + time_step_hours
+            if new_cost < best_cost.get((r1, c1), np.inf):
+                best_cost[(r1, c1)] = new_cost
+                arrival_hours[(r1, c1)] = new_time
+                came_from[(r1, c1)] = current
+                heapq.heappush(frontier, (new_cost, new_time, (r1, c1)))
+
+    raise ValueError(
+        "No feasible isochrone path found within the day budget — check for a "
+        "disconnected/all-infeasible cost grid, or the goal may be unreachable at "
+        "this vessel speed within max_days."
     )

@@ -25,12 +25,16 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.utils.grid import GRID, lat_lon_mesh, latlon_to_index, index_to_latlon  # noqa: E402
 from src.data.preprocess import regrid_bathymetry  # noqa: E402
 from src.models.iceberg_drift.wagner_model import haversine_km  # noqa: E402
-from src.models.routing.isochrone import build_cost_grid, astar_route, naive_route  # noqa: E402
+from src.models.routing.isochrone import (  # noqa: E402
+    build_cost_grid, build_cost_grid_stack, astar_route, isochrone_route, naive_route,
+)
 from src.integration.pipeline import (  # noqa: E402
     BATHY_TIF,
-    load_iceberg_cluster, run_drift_ensemble, rasterize_iceberg_risk,
+    load_iceberg_cluster, run_drift_ensemble, rasterize_iceberg_risk_per_day,
     get_seaice_concentration, get_forcing_fields, find_open_water,
 )
+
+RESOLUTION_KM = GRID.resolution_deg * 111.0  # lat-direction km/cell -- see isochrone_route()'s own docstring
 
 # Vessel ice class -> how much sea-ice concentration it can safely operate
 # in, and how heavily the router should weight ice avoidance for it. Not a
@@ -71,13 +75,35 @@ def _path_distance_km(latlon_path: list) -> float:
 
 
 def _path_cost(cost_grid: np.ndarray, index_path: list) -> dict:
-    """Sum of cost-grid cells a path crosses. Naive routes aren't
-    feasibility-checked (see isochrone.py's naive_route docstring) so they
-    can cross np.inf cells -- report those separately rather than letting
-    one inf cell make the whole score meaningless."""
+    """Sum of cost-grid cells a path crosses, against a SINGLE (day-0)
+    grid. Used for the naive route, which isn't feasibility-checked (see
+    isochrone.py's naive_route docstring) so it can cross np.inf cells --
+    report those separately rather than letting one inf cell make the
+    whole score meaningless."""
     finite_sum, infeasible_count = 0.0, 0
     for r, c in index_path:
         v = cost_grid[r, c]
+        if np.isfinite(v):
+            finite_sum += float(v)
+        else:
+            infeasible_count += 1
+    return {"risk_score": finite_sum, "infeasible_cells_crossed": infeasible_count}
+
+
+def _path_cost_time_aware(cost_grid_by_day: np.ndarray, latlon_path: list, index_path: list,
+                           vessel_speed_kmh: float) -> dict:
+    """Same idea as _path_cost(), but scores the isochrone-optimized path
+    against whichever day's REAL cost grid applies at the point the ship
+    would actually be there (by cumulative distance / speed) -- consistent
+    with how isochrone_route() itself picked costs while building the
+    path, rather than judging the whole voyage by day-0 conditions."""
+    n_days = cost_grid_by_day.shape[0]
+    cumulative_km, finite_sum, infeasible_count = 0.0, 0.0, 0
+    for i, (r, c) in enumerate(index_path):
+        if i > 0:
+            cumulative_km += haversine_km(*latlon_path[i - 1], *latlon_path[i])
+        day_idx = min(int(cumulative_km / vessel_speed_kmh // 24), n_days - 1)
+        v = cost_grid_by_day[day_idx, r, c]
         if np.isfinite(v):
             finite_sum += float(v)
         else:
@@ -214,7 +240,6 @@ def plan_journey(start: dict, goal: dict, departure_time: str, vessel_speed_kmh:
 
     iceberg_cluster = load_iceberg_cluster()
     tracks, source_info = run_drift_ensemble(iceberg_cluster)
-    iceberg_risk = rasterize_iceberg_risk(tracks)
 
     if not BATHY_TIF.exists():
         raise FileNotFoundError(f"{BATHY_TIF} not found — run src/data/download_bathymetry.py first.")
@@ -225,36 +250,52 @@ def plan_journey(start: dict, goal: dict, departure_time: str, vessel_speed_kmh:
     # get_forcing_fields() a second time.
     seaice_forecast, seaice_info = get_seaice_concentration()  # (n_days, n_lat, n_lon)
     wind_u_grid, wind_v_grid, current_u_grid, current_v_grid, forcing_info = get_forcing_fields()
+    horizon_days = seaice_forecast.shape[0] - 1
+    iceberg_risk_per_day = rasterize_iceberg_risk_per_day(tracks, horizon_days)  # real per-day drift trajectory risk
 
-    # A* plans one static route over one cost grid -- day-0 concentration
-    # is the representative field for that (same simplification pipeline.py
-    # uses); day-by-day variation still reaches _day_by_day() below.
-    seaice_day0 = seaice_forecast[0]
     weights = {"distance": 1.0, "seaice": 3.0 * profile["seaice_weight_multiplier"], "iceberg": 5.0}
-    cost_grid = build_cost_grid(seaice_day0, iceberg_risk, bathymetry, weights=weights)
-    # Ice-class hard cutoff, on top of build_cost_grid's own bathymetry cutoff.
-    cost_grid = np.where(seaice_day0 > profile["max_safe_concentration"], np.inf, cost_grid)
+    cost_grid_by_day = build_cost_grid_stack(seaice_forecast, iceberg_risk_per_day, bathymetry, weights=weights)
+    # Ice-class hard cutoff, applied per day (a vessel that can't survive
+    # today's ice might be fine crossing that same cell on a day the real
+    # forecast shows it's cleared, or vice versa).
+    cost_grid_by_day = np.where(seaice_forecast > profile["max_safe_concentration"], np.inf, cost_grid_by_day)
 
     start_idx = find_open_water(bathymetry, start["lat"], start["lon"])
     goal_idx = find_open_water(bathymetry, goal["lat"], goal["lon"])
 
+    routing_method = "isochrone"
     try:
-        optimized_idx_path = astar_route(cost_grid, start_idx, goal_idx)
-    except ValueError as e:
-        raise ValueError(
-            f"No feasible route found for a '{profile['label']}' vessel between these points — "
-            f"the ice/iceberg conditions along every path exceed this vessel's safe operating "
-            f"concentration ({profile['max_safe_concentration']*100:.0f}%). Try a higher ice class "
-            f"or a different start/destination. ({e})"
+        optimized_idx_path, _arrival_hours = isochrone_route(
+            cost_grid_by_day, bathymetry, start_idx, goal_idx,
+            vessel_speed_kmh=vessel_speed_kmh, resolution_km=RESOLUTION_KM,
         )
+    except ValueError as isochrone_err:
+        # Real fallback, not a silent one -- disclosed in the response via
+        # `routing_method` below. A* only sees day-0 conditions, so this is
+        # a real accuracy tradeoff, not equivalent to the isochrone result.
+        routing_method = "astar_fallback"
+        try:
+            optimized_idx_path = astar_route(cost_grid_by_day[0], start_idx, goal_idx)
+        except ValueError as e:
+            raise ValueError(
+                f"No feasible route found for a '{profile['label']}' vessel between these points — "
+                f"the ice/iceberg conditions along every path exceed this vessel's safe operating "
+                f"concentration ({profile['max_safe_concentration']*100:.0f}%). Try a higher ice class "
+                f"or a different start/destination. (isochrone: {isochrone_err}; astar: {e})"
+            )
     naive_idx_path = naive_route(start_idx, goal_idx)
 
     optimized_latlon = [index_to_latlon(r, c) for r, c in optimized_idx_path]
     naive_latlon = [index_to_latlon(r, c) for r, c in naive_idx_path]
 
+    # _path_cost() below still wants a single 2-D grid for the naive route's
+    # (unconstrained, may cross days) risk scoring -- day-0 is the same
+    # representative simplification used before isochrone existed.
+    cost_grid = cost_grid_by_day[0]
+
     optimized_km = _path_distance_km(optimized_latlon)
     naive_km = _path_distance_km(naive_latlon)
-    optimized_cost = _path_cost(cost_grid, optimized_idx_path)
+    optimized_cost = _path_cost_time_aware(cost_grid_by_day, optimized_latlon, optimized_idx_path, vessel_speed_kmh)
     naive_cost = _path_cost(cost_grid, naive_idx_path)
 
     departure_dt = pd.Timestamp(departure_time)
@@ -279,6 +320,16 @@ def plan_journey(start: dict, goal: dict, departure_time: str, vessel_speed_kmh:
                 "distance_km": round(optimized_km, 1),
                 "eta": optimized_eta.isoformat(),
                 "risk_score": round(optimized_cost["risk_score"], 2),
+                "routing_method": routing_method,
+                "routing_method_note": (
+                    "Isochrone: real time-stepped wavefront using the actual day-specific "
+                    "sea-ice/iceberg-risk forecast for whichever day the ship would be at each "
+                    "point, not one static snapshot for the whole voyage."
+                    if routing_method == "isochrone" else
+                    "A* fallback: isochrone search found no feasible path, so this route was "
+                    "planned against day-0 conditions only for the entire voyage -- less accurate "
+                    "for a long voyage than the isochrone method."
+                ),
             },
             "naive": {
                 "path": [{"lat": lat, "lon": lon} for lat, lon in naive_latlon],
