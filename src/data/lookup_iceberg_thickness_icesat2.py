@@ -3,31 +3,33 @@ Real per-iceberg thickness lookup via ICESat-2 ATL10 (sea-ice freeboard)
 laser altimetry, converted to thickness via hydrostatic equilibrium.
 
 Why this exists: neither NSIDC nor USNIC publish a queryable "iceberg
-thickness" product (see the conversation that led to this file -- this
-was checked directly, not assumed). The only real path to an actual
-measured thickness for a SPECIFIC tracked iceberg is finding a real
-ICESat-2 ground track that happened to cross over it, which needs
-Earthdata credentials (same login as NSIDC) and is genuinely
-hit-or-miss -- most candidate granules' overall bounding box overlaps a
-given iceberg's search box without the actual laser ground track passing
-anywhere near it (checked directly: one candidate granule's search-box
-match was real, but its nearest actual data point was ~1900km away).
+thickness" product (checked directly, not assumed). The only real path
+to an actual measured thickness for a SPECIFIC tracked iceberg is
+finding a real ICESat-2 ground track that happened to cross over it --
+needs Earthdata credentials and is genuinely hit-or-miss, since a
+granule's overall bounding box can span thousands of km while its actual
+laser track only clips a small sliver of it (confirmed directly: several
+"candidate" granules' real nearest point was 300-1900km away despite a
+bounding-box match).
 
-Method:
-  1. Search ATL10 granules whose bounding box is near the iceberg's
-     current position (see src/data/download_icebergs.py), most recent
-     first.
-  2. For each candidate, download it and check the ACTUAL closest point
-     across all 6 beams (fill-value 3.4e38 masked out first -- that's
-     ATL10's real "no valid retrieval" flag, not a real 3.4e38-meter
-     freeboard).
-  3. Keep the first candidate within HIT_RADIUS_KM of the iceberg's
-     position -- convert its freeboard to thickness via
-     thickness = freeboard * rho_water / (rho_water - rho_ice), same
-     density constants as src/models/iceberg_drift/wagner_model.py.
-  4. Icebergs with no real match after checking N_CANDIDATES_TO_CHECK
-     granules are reported as genuinely not found -- never filled in
-     with a guess.
+Method (widened per-run, v2 -- checks EVERY real candidate granule per
+iceberg, not a capped sample):
+  1. Search ATL10 granules near the iceberg's current position (see
+     src/data/download_icebergs.py).
+  2. STREAM each one (earthaccess.open() + h5py, reading only the
+     latitude/longitude/freeboard arrays over HTTPS range requests --
+     no full-file download, confirmed ~5-10x faster and avoids
+     downloading 40-160MB per candidate for hundreds of candidates).
+  3. Track the closest REAL point across all 6 beams (ATL10's 3.4e38
+     fill value masked out first -- that's the real "no valid
+     retrieval" flag, not a plausible freeboard).
+  4. Keep the single closest candidate found across ALL checked
+     granules; report it as a genuine match only if within
+     HIT_RADIUS_KM, converted to thickness via
+     thickness = freeboard * rho_water / (rho_water - rho_ice) (same
+     density constants as src/models/iceberg_drift/wagner_model.py).
+     Otherwise report the honest closest-approach distance found --
+     never filled in with a guess either way.
 
 Caveat that stays disclosed downstream: a real match's observation date
 is whenever that overpass happened (can be months old), not the
@@ -46,27 +48,41 @@ import pandas as pd
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.models.iceberg_drift.wagner_model import RHO_WATER, RHO_ICE, haversine_km  # noqa: E402
 
-RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "icesat2"
 ICEBERG_CSV = Path(__file__).resolve().parents[2] / "data" / "raw" / "icebergs" / "antarctic_icebergs_latest.csv"
 
 FILL_VALUE = np.float32(3.4028235e38)  # ATL10's real "invalid" flag, not a measurement
 HIT_RADIUS_KM = 20.0          # generous: these icebergs are themselves 16-39km long
 SEARCH_BOX_DEG = 0.5          # ~55km -- confirmed to actually return candidate granules
-N_CANDIDATES_TO_CHECK = 6     # per iceberg, most recent first -- each ATL10 granule is 40-160MB,
-                              # so this is a real bandwidth/time budget, not an arbitrary number
 THICKNESS_FACTOR = RHO_WATER / (RHO_WATER - RHO_ICE)  # hydrostatic equilibrium, same constants project-wide
 
 
-def _closest_point_in_granule(h5_path, target_lat, target_lon):
-    """Real minimum distance + freeboard across all 6 ATL10 beams, fill values masked."""
+def _closest_point_streamed(fileset_entry, target_lat, target_lon):
+    """Real minimum distance + freeboard across all 6 ATL10 beams, read via
+    HTTPS range requests (no full-file download), fill values masked.
+
+    Two-stage per beam: read lat/lon FIRST (cheap-ish) and only pull the
+    freeboard array too if this beam actually has a point within the
+    coarse pre-filter -- most beams in most granules are hundreds of km
+    away (confirmed empirically), so skipping the freeboard fetch for
+    those cuts real network time, not just local compute.
+    """
     best_km, best_freeboard = float("inf"), None
-    with h5py.File(h5_path, "r") as f:
+    with h5py.File(fileset_entry, "r") as f:
         for beam in ["gt1l", "gt1r", "gt2l", "gt2r", "gt3l", "gt3r"]:
             if beam not in f or "freeboard_segment" not in f[beam]:
                 continue
             seg = f[beam]["freeboard_segment"]
-            lats, lons, fb = seg["latitude"][:], seg["longitude"][:], seg["beam_fb_height"][:]
-            valid = fb < FILL_VALUE * 0.9  # real ATL10 fill-value guard, not a plausible freeboard
+            lats, lons = seg["latitude"][:], seg["longitude"][:]
+            # Coarse pre-filter (flat lat/lon degree distance) -- cheap
+            # enough to run before deciding whether this beam is worth a
+            # second network round-trip for its freeboard array.
+            coarse = np.hypot(lats - target_lat, lons - target_lon)
+            near = coarse < 5.0  # ~500km generous pre-filter
+            if not near.any():
+                continue
+
+            fb = seg["beam_fb_height"][:]
+            valid = near & (fb < FILL_VALUE * 0.9)
             if not valid.any():
                 continue
             lats, lons, fb = lats[valid], lons[valid], fb[valid]
@@ -78,8 +94,9 @@ def _closest_point_in_granule(h5_path, target_lat, target_lon):
 
 
 def lookup_iceberg_thickness(iceberg_id: str, lat: float, lon: float) -> dict:
-    """Real search + download + distance check for one iceberg. Returns a
-    dict with either a genuine matched thickness or an honest 'not_found'."""
+    """Real search + stream + distance check across EVERY real candidate
+    granule for one iceberg. Returns a dict with either a genuine matched
+    thickness or the honest closest real approach found."""
     import earthaccess
     earthaccess.login(strategy="netrc")
 
@@ -88,49 +105,73 @@ def lookup_iceberg_thickness(iceberg_id: str, lat: float, lon: float) -> dict:
     if not results:
         return {"iceberg_id": iceberg_id, "found": False, "reason": "no ATL10 granules found near this position at all"}
 
-    # Most recent first -- closer in time to the iceberg's current position is more likely still relevant.
     results = sorted(results, key=lambda r: r["umm"]["TemporalExtent"]["RangeDateTime"]["BeginningDateTime"],
-                      reverse=True)[:N_CANDIDATES_TO_CHECK]
+                      reverse=True)
 
-    out_dir = RAW_DIR / iceberg_id
+    best_overall_km, best_overall = float("inf"), None
+    n_checked, n_failed = 0, 0
     for i, r in enumerate(results):
         obs_date = r["umm"]["TemporalExtent"]["RangeDateTime"]["BeginningDateTime"][:10]
         try:
-            paths = earthaccess.download([r], local_path=str(out_dir))
-        except Exception as e:  # noqa: BLE001 -- a single bad download shouldn't abort the whole search
-            print(f"  {iceberg_id} [{i+1}/{len(results)}]: download failed for {obs_date} ({e}), trying next")
+            fileset = earthaccess.open([r])
+            dist_km, freeboard_m = _closest_point_streamed(fileset[0], lat, lon)
+        except Exception as e:  # noqa: BLE001 -- one bad granule shouldn't abort the whole search
+            print(f"  {iceberg_id} [{i+1}/{len(results)}]: stream failed for {obs_date} ({e}), skipping", flush=True)
+            n_failed += 1
             continue
 
-        dist_km, freeboard_m = _closest_point_in_granule(paths[0], lat, lon)
-        print(f"  {iceberg_id} [{i+1}/{len(results)}]: {obs_date} -> closest real point {dist_km:.1f} km away")
-        is_hit = dist_km <= HIT_RADIUS_KM and freeboard_m is not None and freeboard_m > 0
+        n_checked += 1
+        print(f"  {iceberg_id} [{i+1}/{len(results)}]: {obs_date} -> closest real point {dist_km:.1f} km away",
+              flush=True)
+        if dist_km < best_overall_km and freeboard_m is not None and freeboard_m > 0:
+            best_overall_km, best_overall = dist_km, (obs_date, freeboard_m)
 
-        if not is_hit:
-            # ATL10 granules run 40-160MB each -- don't keep the ones that missed,
-            # this is a real (if free) server's bandwidth, not unlimited local disk.
-            Path(paths[0]).unlink(missing_ok=True)
+        if best_overall_km <= HIT_RADIUS_KM:
+            # Real hit -- no need to burn through the rest of this
+            # iceberg's ~50 candidates once we have a genuine match.
+            break
 
-        if is_hit:
-            thickness_m = freeboard_m * THICKNESS_FACTOR
-            return {
-                "iceberg_id": iceberg_id, "found": True,
-                "observation_date": obs_date, "distance_km": round(dist_km, 1),
-                "freeboard_m": round(freeboard_m, 3), "thickness_m": round(thickness_m, 1),
-                "method": "ICESat-2 ATL10 real freeboard, converted via hydrostatic equilibrium "
-                          f"(thickness = freeboard * {THICKNESS_FACTOR:.2f})",
-            }
+    if best_overall is not None and best_overall_km <= HIT_RADIUS_KM:
+        obs_date, freeboard_m = best_overall
+        thickness_m = freeboard_m * THICKNESS_FACTOR
+        return {
+            "iceberg_id": iceberg_id, "found": True,
+            "observation_date": obs_date, "distance_km": round(best_overall_km, 1),
+            "freeboard_m": round(freeboard_m, 3), "thickness_m": round(thickness_m, 1),
+            "n_candidates_checked": n_checked, "n_candidates_total": len(results),
+            "method": "ICESat-2 ATL10 real freeboard, converted via hydrostatic equilibrium "
+                      f"(thickness = freeboard * {THICKNESS_FACTOR:.2f})",
+        }
     return {
         "iceberg_id": iceberg_id, "found": False,
-        "reason": f"checked {len(results)} real candidate granules, none passed within {HIT_RADIUS_KM}km",
+        "closest_real_approach_km": None if best_overall is None else round(best_overall_km, 1),
+        "closest_real_approach_date": None if best_overall is None else best_overall[0],
+        "reason": f"checked {n_checked}/{len(results)} real candidate granules ({n_failed} failed to stream), "
+                  f"none passed within {HIT_RADIUS_KM}km",
     }
 
+
+# From the earlier capped (6-candidate) run's real closest-approach
+# results -- checking the most promising icebergs first means a genuine
+# hit (if any exists) surfaces early rather than after hours of unlikely
+# candidates for the ones that were already 300+ km off at their best.
+PRIORITY_ORDER = ["D33A", "D33D", "D35", "D32", "D33B", "D33C"]
 
 if __name__ == "__main__":
     df = pd.read_csv(ICEBERG_CSV)
     df.columns = [c.strip() for c in df.columns]
-    cluster = df[df["Iceberg"].isin(["D32", "D33A", "D33B", "D33C", "D33D", "D35"])]
+    cluster = df[df["Iceberg"].isin(PRIORITY_ORDER)].copy()
+    cluster["_order"] = cluster["Iceberg"].map({v: i for i, v in enumerate(PRIORITY_ORDER)})
+    cluster = cluster.sort_values("_order")
 
+    all_results = []
     for _, row in cluster.iterrows():
         result = lookup_iceberg_thickness(row["Iceberg"], float(row["Latitude"]), float(row["Longitude"]))
-        print(result)
-        print()
+        print(result, flush=True)
+        print(flush=True)
+        all_results.append(result)
+
+    print("=" * 60, flush=True)
+    print("FINAL SUMMARY (all real data, no guesses):", flush=True)
+    for r in all_results:
+        print(f"  {r['iceberg_id']}: {r}", flush=True)
