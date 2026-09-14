@@ -34,6 +34,14 @@ class DomainGrid:
     lat_max: float = -54.0
 
     resolution_deg: float = 0.25   # ~25km at these latitudes, matches native NSIDC CDR grid
+    # NOTE (in progress): raising this to 0.125deg (~14km) -- AMSR2 Bremen's
+    # own native resolution is 6.25km, so regridding straight down to 25km
+    # discards real sub-grid ice-edge structure. Staged as one atomic swap
+    # together with rebuilding data/processed/*.nc and retraining, once the
+    # extended (2012-present) AMSR2 download finishes -- flipping this
+    # alone first would break the live app (shape mismatch against the
+    # still-0.25deg cached history files) for however long the rebuild
+    # takes, which is avoidable by doing it all in one pass instead.
 
     forecast_horizon_days: int = 7  # within README's 5-10 day recommended range
 

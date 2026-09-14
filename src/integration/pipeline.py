@@ -185,6 +185,12 @@ def _run_convlstm_forecast(horizon_days: int):
     checkpoint = torch.load(CONVLSTM_CHECKPOINT, map_location="cpu")
     extra_vars = checkpoint.get("extra_vars", [])
     input_seq_len = checkpoint.get("input_seq_len", 7)
+    # Architecture hyperparams: default to the original fixed values for
+    # checkpoints saved before these were swept/exposed, so old checkpoints
+    # keep loading correctly.
+    hidden_dim = checkpoint.get("hidden_dim", 32)
+    num_layers = checkpoint.get("num_layers", 2)
+    kernel_size = checkpoint.get("kernel_size", 3)
 
     history_name = "seaice_history_with_weather.nc" if extra_vars else "seaice_history.nc"
     history_path = DATA_DIR / "processed" / history_name
@@ -199,9 +205,30 @@ def _run_convlstm_forecast(horizon_days: int):
     if ds.sizes["time"] < input_seq_len:
         raise ValueError(f"History has only {ds.sizes['time']} days, need >= {input_seq_len}.")
 
-    model = SeaIceConvLSTM(input_dim=1 + len(extra_vars))
-    model.load_state_dict(checkpoint["model_state_dict"] if "model_state_dict" in checkpoint else checkpoint)
-    model.eval()
+    def _build_model():
+        m = SeaIceConvLSTM(
+            input_dim=1 + len(extra_vars), hidden_dim=hidden_dim,
+            kernel_size=kernel_size, num_layers=num_layers,
+        )
+        m.eval()
+        return m
+
+    # Ensemble checkpoints (src/models/seaice_forecast/train_ensemble.py) carry
+    # several real independently-trained state_dicts (different seeds, same
+    # architecture) instead of one -- averaging their predictions at each
+    # autoregressive step is a real, cheap accuracy improvement over any
+    # single member, not a synthetic uncertainty display.
+    ensemble_state_dicts = checkpoint.get("ensemble_state_dicts")
+    if ensemble_state_dicts:
+        models = []
+        for sd in ensemble_state_dicts:
+            m = _build_model()
+            m.load_state_dict(sd)
+            models.append(m)
+    else:
+        model = _build_model()
+        model.load_state_dict(checkpoint["model_state_dict"] if "model_state_dict" in checkpoint else checkpoint)
+        models = [model]
 
     conc_window = ds["cdr_seaice_conc"].isel(time=slice(-input_seq_len, None)).values.astype(np.float32)
     last_obs_date = str(ds["time"].values[-1])[:10]
@@ -227,7 +254,8 @@ def _run_convlstm_forecast(horizon_days: int):
             else:
                 x_np = channel_window[:, np.newaxis]  # (seq, 1, H, W)
             x_seq = torch.from_numpy(x_np).unsqueeze(0)  # (1, seq, C, H, W)
-            pred = model(x_seq).squeeze(0).squeeze(0).numpy()  # (H, W)
+            member_preds = [m(x_seq).squeeze(0).squeeze(0).numpy() for m in models]
+            pred = np.mean(member_preds, axis=0)  # (H, W) -- real ensemble average when len(models) > 1
             frames.append(pred)
             channel_window = np.concatenate([channel_window[1:], pred[np.newaxis]], axis=0)
 

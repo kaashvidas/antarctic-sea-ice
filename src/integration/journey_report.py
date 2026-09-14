@@ -41,28 +41,53 @@ RESOLUTION_KM = GRID.resolution_deg * 111.0  # lat-direction km/cell -- see isoc
 # regulatory classification table (IACS Polar Class rules are far more
 # detailed) -- a deliberately simple, disclosed stand-in so "vessel
 # details" is a real input to the route rather than a cosmetic field.
+#
+# Two thresholds, not one:
+#   max_safe_concentration      -- beyond this, cost escalates steeply
+#                                   (slower, riskier transit) but the cell
+#                                   is still reachable.
+#   hard_infeasible_concentration -- true absolute wall (np.inf): only
+#                                   near-total/consolidated (effectively
+#                                   fast) ice is actually impassable.
+# AMSR2 concentration alone can't distinguish thin new ice from thick
+# ridged multi-year pack, so treating max_safe_concentration as an
+# absolute cutoff for a capable icebreaker was wrong: a Polar Class
+# vessel's entire purpose is to operate IN dense pack, just slower and
+# at higher risk, not to be routed around it as if it were a wall. The
+# weaker classes keep both thresholds equal -- those vessels genuinely
+# cannot be in dense pack at all, so no soft zone is appropriate for them.
 ICE_CLASS_PROFILES = {
     "not_ice_strengthened": {
         "label": "Not ice-strengthened",
         "max_safe_concentration": 0.15,
+        "hard_infeasible_concentration": 0.15,
         "seaice_weight_multiplier": 4.0,
     },
     "ice_strengthened": {
         "label": "Ice-strengthened (non-Polar Class)",
         "max_safe_concentration": 0.50,
+        "hard_infeasible_concentration": 0.50,
         "seaice_weight_multiplier": 2.0,
     },
     "polar_class_pc5": {
         "label": "Polar Class PC5",
         "max_safe_concentration": 0.80,
+        "hard_infeasible_concentration": 0.98,
         "seaice_weight_multiplier": 1.0,
     },
     "polar_class_pc3_or_higher": {
         "label": "Polar Class PC3 or higher",
         "max_safe_concentration": 0.95,
+        "hard_infeasible_concentration": 0.99,
         "seaice_weight_multiplier": 0.5,
     },
 }
+
+# How hard the steep escalation past max_safe_concentration bites, relative
+# to the base weights (distance=1, seaice up to 3*4=12, iceberg=5) -- large
+# enough that the router strongly prefers avoiding this zone when any
+# alternative exists, without making it literally infeasible.
+STEEP_PENALTY_SCALE = 60.0
 
 CLOSEST_APPROACH_WARNING_KM = 50.0
 
@@ -266,10 +291,22 @@ def plan_journey(start: dict, goal: dict, departure_time: str, vessel_speed_kmh:
 
     weights = {"distance": 1.0, "seaice": 3.0 * profile["seaice_weight_multiplier"], "iceberg": 5.0}
     cost_grid_by_day = build_cost_grid_stack(seaice_forecast, iceberg_risk_per_day, bathymetry, weights=weights)
-    # Ice-class hard cutoff, applied per day (a vessel that can't survive
-    # today's ice might be fine crossing that same cell on a day the real
-    # forecast shows it's cleared, or vice versa).
-    cost_grid_by_day = np.where(seaice_forecast > profile["max_safe_concentration"], np.inf, cost_grid_by_day)
+    # Beyond max_safe_concentration: steep (quadratic) cost escalation, not
+    # yet infeasibility -- a capable icebreaker CAN transit dense pack,
+    # just slower and at higher risk, which is the whole point of an ice
+    # class rating (see ICE_CLASS_PROFILES docstring above). Applied per
+    # day, since a vessel that can't survive today's ice might be fine
+    # crossing that same cell on a day the real forecast shows it's
+    # cleared, or vice versa.
+    max_safe = profile["max_safe_concentration"]
+    over_soft = np.clip(seaice_forecast - max_safe, 0.0, None)
+    steep_penalty = (over_soft / max(1e-6, 1.0 - max_safe)) ** 2 * STEEP_PENALTY_SCALE
+    cost_grid_by_day = cost_grid_by_day + steep_penalty
+    # Only true near-total/consolidated (effectively fast) ice is an
+    # absolute wall.
+    cost_grid_by_day = np.where(
+        seaice_forecast > profile["hard_infeasible_concentration"], np.inf, cost_grid_by_day
+    )
 
     start_idx = find_open_water(bathymetry, start["lat"], start["lon"])
     goal_idx = find_open_water(bathymetry, goal["lat"], goal["lon"])
@@ -288,10 +325,14 @@ def plan_journey(start: dict, goal: dict, departure_time: str, vessel_speed_kmh:
         try:
             optimized_idx_path = astar_route(cost_grid_by_day[0], start_idx, goal_idx)
         except ValueError as e:
+            hard = profile["hard_infeasible_concentration"]
+            if hard > profile["max_safe_concentration"]:
+                limit_desc = f"even this vessel's hard operating limit ({hard*100:.0f}% concentration, effectively consolidated/fast ice)"
+            else:
+                limit_desc = f"this vessel's safe operating concentration ({hard*100:.0f}%)"
             raise ValueError(
                 f"No feasible route found for a '{profile['label']}' vessel between these points — "
-                f"the ice/iceberg conditions along every path exceed this vessel's safe operating "
-                f"concentration ({profile['max_safe_concentration']*100:.0f}%). Try a higher ice class "
+                f"the ice/iceberg conditions along every path exceed {limit_desc}. Try a higher ice class "
                 f"or a different start/destination. (isochrone: {isochrone_err}; astar: {e})"
             )
     naive_idx_path = naive_route(start_idx, goal_idx)

@@ -91,8 +91,22 @@ def download_range(start_date: datetime, end_date: datetime, out_dir: Path = RAW
             skipped_existing += 1
             continue
 
-        resp = requests.get(_url_for_date(date), timeout=30)
-        if resp.status_code == 200 and len(resp.content) > 1000:
+        # A single transient network hiccup (real, seen in practice against
+        # this free public server over a multi-thousand-request run)
+        # shouldn't kill a run that's otherwise thousands of files in --
+        # retry a few times with backoff before giving up on this one date.
+        resp = None
+        for attempt in range(4):
+            try:
+                resp = requests.get(_url_for_date(date), timeout=30)
+                break
+            except requests.exceptions.RequestException as e:
+                if attempt == 3:
+                    print(f"WARNING: {date.date()} failed after 4 attempts ({e}), skipping")
+                else:
+                    time.sleep(2 ** attempt)
+
+        if resp is not None and resp.status_code == 200 and len(resp.content) > 1000:
             out_path.write_bytes(resp.content)
             saved.append(out_path)
         else:

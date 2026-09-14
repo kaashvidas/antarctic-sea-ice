@@ -87,7 +87,7 @@ class SeaIceSequenceDataset(Dataset):
         return torch.from_numpy(x_seq), torch.from_numpy(target)
 
 
-def train(model, train_loader, val_loader, epochs: int = 20, lr: float = 1e-3, device: str = "cpu"):
+def train(model, train_loader, val_loader, epochs: int = 20, lr: float = 1e-3, device: str = "cpu", quiet: bool = False):
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = torch.nn.MSELoss()
@@ -112,8 +112,9 @@ def train(model, train_loader, val_loader, epochs: int = 20, lr: float = 1e-3, d
                 pred = model(x_seq)
                 val_loss += loss_fn(pred, target).item()
 
-        print(f"Epoch {epoch+1}/{epochs} — train_loss={train_loss/len(train_loader):.4f} "
-              f"val_loss={val_loss/len(val_loader):.4f}")
+        if not quiet:
+            print(f"Epoch {epoch+1}/{epochs} — train_loss={train_loss/len(train_loader):.4f} "
+                  f"val_loss={val_loss/len(val_loader):.4f}")
 
     return model
 
@@ -139,6 +140,11 @@ if __name__ == "__main__":
     parser.add_argument("--input-seq-len", type=int, default=7)
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--hidden-dim", type=int, default=32)
+    parser.add_argument("--num-layers", type=int, default=2)
+    parser.add_argument("--kernel-size", type=int, default=3)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--extra-vars", default="",
                          help="Comma-separated extra input channels beyond concentration, e.g. "
                               "'wind_u,wind_v,current_u,current_v' -- must exist as variables in "
@@ -151,6 +157,7 @@ if __name__ == "__main__":
                               "the moment one exists.")
     args = parser.parse_args()
     extra_vars = [v.strip() for v in args.extra_vars.split(",") if v.strip()]
+    torch.manual_seed(args.seed)
 
     if not Path(args.processed_path).exists():
         print(
@@ -174,8 +181,11 @@ if __name__ == "__main__":
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=False)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False)
 
-    model = SeaIceConvLSTM(input_dim=1 + len(extra_vars))
-    model = train(model, train_loader, val_loader, epochs=args.epochs)
+    model = SeaIceConvLSTM(
+        input_dim=1 + len(extra_vars), hidden_dim=args.hidden_dim,
+        kernel_size=args.kernel_size, num_layers=args.num_layers,
+    )
+    model = train(model, train_loader, val_loader, epochs=args.epochs, lr=args.lr)
 
     # Compare against baselines on the same held-out (val) window — the
     # comparison table is the deliverable, not just the trained model.
@@ -228,6 +238,9 @@ if __name__ == "__main__":
         "model_state_dict": model.state_dict(),
         "input_seq_len": args.input_seq_len,
         "extra_vars": extra_vars,  # pipeline.py's inference must reconstruct the SAME channels, same order
+        "hidden_dim": args.hidden_dim,
+        "num_layers": args.num_layers,
+        "kernel_size": args.kernel_size,
         "trained_on": args.processed_path,
         "n_train_days": int(train_sl.stop - train_sl.start),
         "held_out_skill": {k: {mk: float(mv) for mk, mv in v.items()} for k, v in skill.items()},

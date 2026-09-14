@@ -34,7 +34,11 @@ export default function SummaryHeader({ report, onPlanAnother }) {
         <div className="readout">
           <span className="readout-label">Ice class</span>
           <span className="readout-value readout-value--sm">{profile.label}</span>
-          <span className="readout-sub">max safe concentration {fmtPct(profile.max_safe_concentration * 100)}</span>
+          <span className="readout-sub">
+            {profile.hard_infeasible_concentration > profile.max_safe_concentration
+              ? `cautious beyond ${fmtPct(profile.max_safe_concentration * 100)} · hard limit ${fmtPct(profile.hard_infeasible_concentration * 100)}`
+              : `max safe concentration ${fmtPct(profile.max_safe_concentration * 100)}`}
+          </span>
         </div>
       </div>
       <button type="button" className="btn-secondary" onClick={onPlanAnother}>Plan another journey</button>
