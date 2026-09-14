@@ -148,8 +148,22 @@ export default function JourneyPlanner({ manifest, iceClasses, onPlanned }) {
         )}
 
         <button type="submit" className="btn-primary" disabled={submitting}>
-          {submitting ? 'Computing route…' : 'Plan voyage'}
+          {submitting ? (
+            <span className="btn-spinner-row">
+              <span className="btn-spinner" aria-hidden="true" />
+              Computing route…
+            </span>
+          ) : (
+            'Plan voyage'
+          )}
         </button>
+        {submitting && (
+          <p className="field-hint submitting-hint">
+            Running a real time-stepped route search against the live forecast — this checks
+            day-by-day ice and iceberg conditions along many candidate paths, so it can take up to
+            30 seconds. Not stuck.
+          </p>
+        )}
       </form>
 
       <div className="planner-map-pane">

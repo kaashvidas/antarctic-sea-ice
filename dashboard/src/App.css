@@ -162,6 +162,26 @@
   opacity: 0.55;
   cursor: default;
 }
+.btn-spinner-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.btn-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(6, 32, 29, 0.35);
+  border-top-color: #06201d;
+  animation: btn-spin 0.7s linear infinite;
+}
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+.submitting-hint {
+  margin-top: var(--sp-2);
+  color: var(--text-2);
+}
 .btn-secondary {
   background: transparent;
   color: var(--text-1);

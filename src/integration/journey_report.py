@@ -113,7 +113,7 @@ def _path_cost_time_aware(cost_grid_by_day: np.ndarray, latlon_path: list, index
 
 def _day_by_day(optimized_latlon: list, vessel_speed_kmh: float, departure_dt: pd.Timestamp,
                  seaice_forecast: np.ndarray, wind_u_grid, wind_v_grid, current_u_grid, current_v_grid,
-                 seaice_is_real: bool, forcing_is_real: bool,
+                 seaice_is_real: bool, forcing_is_real: bool, seaice_is_true_forecast: bool = False,
                  horizon_days: int = GRID.forecast_horizon_days) -> list:
     """Bucket the route into forecast days by cumulative distance / speed,
     sampling REAL (where available -- see get_seaice_concentration()/
@@ -161,6 +161,7 @@ def _day_by_day(optimized_latlon: list, vessel_speed_kmh: float, departure_dt: p
             "current_u_ms": float(np.mean(b["current_u"])) if has_points else None,
             "current_v_ms": float(np.mean(b["current_v"])) if has_points else None,
             "seaice_is_real_data": seaice_is_real,
+            "seaice_is_true_forecast": seaice_is_true_forecast,
             "forcing_is_real_data": forcing_is_real,
             "is_placeholder": not (seaice_is_real and forcing_is_real),
         })
@@ -343,7 +344,8 @@ def plan_journey(start: dict, goal: dict, departure_time: str, vessel_speed_kmh:
         "day_by_day": _day_by_day(optimized_latlon, vessel_speed_kmh, departure_dt,
                                    seaice_forecast, wind_u_grid, wind_v_grid, current_u_grid, current_v_grid,
                                    seaice_is_real=seaice_info["is_real_data"],
-                                   forcing_is_real=forcing_info["is_real_data"]),
+                                   forcing_is_real=forcing_info["is_real_data"],
+                                   seaice_is_true_forecast=seaice_info.get("is_true_forecast", False)),
         "icebergs": _iceberg_report(iceberg_cluster, tracks, optimized_latlon, vessel_speed_kmh),
         "disclosure": {
             "data_sources": {"sea_ice_concentration": seaice_info, "wind_and_current": forcing_info},

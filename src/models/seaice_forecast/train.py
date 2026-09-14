@@ -52,7 +52,21 @@ class SeaIceSequenceDataset(Dataset):
 
         channels = [conc]
         for var in (extra_vars or []):
-            channels.append(ds[var].values.astype(np.float32))
+            arr = ds[var].values.astype(np.float32)
+            if np.isnan(arr).any():
+                # Same rule as the concentration check above -- a NaN
+                # slipping into ANY input channel silently poisons every
+                # conv layer's output for that whole spatial window, not
+                # just the one bad cell (found the hard way: a real
+                # source-data coverage gap in one extra channel once
+                # trained a checkpoint on exactly this before this check
+                # existed).
+                raise ValueError(
+                    f"{processed_path}'s extra channel '{var}' has NaNs — fix the "
+                    "source data / gap-filling (see merge_weather_into_history.py) "
+                    "before training, don't silently zero-fill a forcing channel."
+                )
+            channels.append(arr)
         # (time, channel, lat, lon)
         self.data = np.stack(channels, axis=1)
 

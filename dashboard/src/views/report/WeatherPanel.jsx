@@ -11,14 +11,20 @@ function VectorIndicator({ label, u, v, unit }) {
   )
 }
 
+function seaIceTagLabel(day) {
+  if (!day.seaice_is_real_data) return 'placeholder'
+  return day.seaice_is_true_forecast ? 'real ConvLSTM forecast' : 'real satellite obs., persisted'
+}
+
 /**
  * Conditions for the currently-selected day (shared selection with the
  * timeline / map day slider). Sea-ice and wind/current each carry their
- * own real-data flag now (day.seaice_is_real_data / day.forcing_is_real_data)
- * rather than one blanket placeholder tag — sea-ice is a real satellite
- * observation persisted forward (not a trained forecast), wind/current is
- * a real multi-day forecast. Tags reflect whichever is actually true for
- * this response instead of assuming everything is a stand-in.
+ * own real-data flag now (day.seaice_is_real_data / day.forcing_is_real_data),
+ * and sea-ice additionally distinguishes a genuine trained-model forecast
+ * from real-but-persisted (no trained checkpoint) via
+ * day.seaice_is_true_forecast — the label must track whichever is
+ * actually true for THIS response, not assume the checkpoint state from
+ * whenever this component was last edited.
  */
 export default function WeatherPanel({ day }) {
   if (!day) return null
@@ -47,7 +53,7 @@ export default function WeatherPanel({ day }) {
           <span>
             Sea-ice concentration{' '}
             <span className={`tag ${day.seaice_is_real_data ? 'tag--real' : 'tag--placeholder'}`}>
-              {day.seaice_is_real_data ? 'real satellite obs., persisted' : 'placeholder'}
+              {seaIceTagLabel(day)}
             </span>
           </span>
           <span>{meanPct.toFixed(0)}% mean · {maxPct.toFixed(0)}% max</span>
