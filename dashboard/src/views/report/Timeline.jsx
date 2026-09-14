@@ -1,4 +1,4 @@
-import { fmtDate, vectorToSpeedDir } from '../../format'
+import { fmtDate, vectorToSpeedDir, seaIceConfidence } from '../../format'
 
 /**
  * Day-by-day drift-trajectory timeline: one entry per day_by_day item.
@@ -28,6 +28,7 @@ export default function Timeline({ dayByDay, selectedDay, onSelectDay }) {
           }
           const meanPct = (d.mean_seaice_concentration ?? 0) * 100
           const { speed, compass } = vectorToSpeedDir(d.wind_u_ms, d.wind_v_ms)
+          const conf = seaIceConfidence(d.seaice_mae_this_lead_day)
           return (
             <button
               type="button"
@@ -35,7 +36,15 @@ export default function Timeline({ dayByDay, selectedDay, onSelectDay }) {
               className={`timeline-item${isSelected ? ' selected' : ''}`}
               onClick={() => onSelectDay(d.day)}
             >
-              <span className="timeline-day">Day {d.day}</span>
+              <span className="timeline-day">
+                Day {d.day}
+                {conf && (
+                  <span
+                    className={`timeline-confidence-dot timeline-confidence-dot--${conf.short}`}
+                    title={`Sea-ice forecast: ${conf.text} (measured error ±${(d.seaice_mae_this_lead_day * 100).toFixed(1)} pts)`}
+                  />
+                )}
+              </span>
               <span className="timeline-date">{fmtDate(d.date)}</span>
               <div className="timeline-mini-gauge">
                 <div className="timeline-mini-gauge-fill" style={{ width: `${meanPct}%` }} />

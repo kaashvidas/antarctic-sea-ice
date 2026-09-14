@@ -1,4 +1,4 @@
-import { vectorToSpeedDir, fmtDate } from '../../format'
+import { vectorToSpeedDir, fmtDate, seaIceConfidence } from '../../format'
 
 function VectorIndicator({ label, u, v, unit }) {
   const { speed, bearingDeg, compass } = vectorToSpeedDir(u, v)
@@ -62,6 +62,19 @@ export default function WeatherPanel({ day }) {
           <div className="ice-gauge-fill mean" style={{ width: `${meanPct}%` }} />
           <div className="ice-gauge-marker" style={{ left: `${maxPct}%` }} title="max" />
         </div>
+        {(() => {
+          const conf = seaIceConfidence(day.seaice_mae_this_lead_day)
+          if (!conf) return null
+          return (
+            <div className="forecast-confidence">
+              <span className={`tag ${conf.cls}`}>{conf.text}</span>
+              <span className="forecast-confidence-detail">
+                measured error at day {day.day}: ±{(day.seaice_mae_this_lead_day * 100).toFixed(1)}
+                pts concentration (real test-set result, error compounds with lead day)
+              </span>
+            </div>
+          )
+        })()}
       </div>
 
       <div className="vector-row-title">

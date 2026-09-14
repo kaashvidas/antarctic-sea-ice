@@ -259,6 +259,17 @@ def get_seaice_concentration(horizon_days: int = None):
             input_seq_len = ckpt_meta.get("input_seq_len", 7)
             held_out_skill = ckpt_meta.get("held_out_skill")
 
+            # Real per-lead-day skill (evaluate_multiday.py) -- distinct
+            # from held_out_skill above, which is 1-day-ahead only. Error
+            # genuinely compounds across the autoregressive rollout, so a
+            # single number would overstate day-7 confidence; this lets
+            # every forecast day disclose its own real, measured accuracy.
+            multiday_skill_path = DATA_DIR / "processed" / "convlstm_multiday_skill.json"
+            mae_by_lead_day = None
+            if multiday_skill_path.exists():
+                import json
+                mae_by_lead_day = json.loads(multiday_skill_path.read_text()).get("mae_by_lead_day")
+
             stack, last_obs_date = _run_convlstm_forecast(horizon_days)
             return stack, {
                 "variable": "sea_ice_concentration",
@@ -270,6 +281,7 @@ def get_seaice_concentration(horizon_days: int = None):
                 ],
                 "method": f"autoregressive rollout from the last {input_seq_len} real observed days",
                 "held_out_skill": held_out_skill,
+                "mae_by_lead_day": mae_by_lead_day,
                 "is_real_data": True,
                 "is_true_forecast": True,
             }

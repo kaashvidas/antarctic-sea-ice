@@ -50,6 +50,18 @@ export function fmtDate(iso) {
   })
 }
 
+// Buckets derived from this project's own real measured autoregressive
+// MAE curve (day 1 ~0.03, day 7 ~0.073 -- see
+// src/models/seaice_forecast/evaluate_multiday.py's actual results), not
+// arbitrary thresholds. Sea-ice forecast error compounds with lead day
+// because each day's ConvLSTM prediction feeds into the next day's input.
+export function seaIceConfidence(mae) {
+  if (mae == null) return null
+  if (mae < 0.04) return { text: 'high confidence', short: 'high', cls: 'tag--real' }
+  if (mae < 0.06) return { text: 'moderate confidence', short: 'moderate', cls: 'tag--placeholder' }
+  return { text: 'lower confidence', short: 'lower', cls: 'tag--placeholder' }
+}
+
 export function humanize(fieldName) {
   return fieldName
     .split('_')

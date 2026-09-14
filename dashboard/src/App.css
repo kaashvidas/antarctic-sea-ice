@@ -869,6 +869,17 @@
   background: var(--accent-amber);
   transform: translateX(-1px);
 }
+.forecast-confidence {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  flex-wrap: wrap;
+}
+.forecast-confidence-detail {
+  font-size: var(--fs-micro);
+  color: var(--text-3);
+}
 .vector-row-title {
   font-size: var(--fs-micro);
   color: var(--text-3);
@@ -949,6 +960,25 @@
   font-weight: 700;
   font-size: var(--fs-body);
   color: var(--text-0);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+.timeline-confidence-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.timeline-confidence-dot--high {
+  background: var(--accent-cyan);
+}
+.timeline-confidence-dot--moderate {
+  background: var(--accent-amber);
+}
+.timeline-confidence-dot--lower {
+  background: var(--accent-red);
 }
 .timeline-date {
   font-size: var(--fs-micro);
