@@ -551,7 +551,14 @@ def write_seaice_images(seaice_forecast: np.ndarray, out_subdir: str = "seaice")
     from PIL import Image
     paths = []
     for day in range(seaice_forecast.shape[0]):
-        rgba = (cm.Blues(seaice_forecast[day]) * 255).astype(np.uint8)
+        # Blues_r (reversed), not Blues: matches the standard sea-ice
+        # cartography convention (NSIDC, NASA Worldview, every published
+        # Antarctic/Arctic ice map) -- white = dense ice, blue = open
+        # water, like ice and ocean actually look from satellite. Plain
+        # Blues has this backwards (white = open water), which is
+        # genuinely confusing to anyone who's seen a real sea-ice map
+        # before -- caught live during a demo.
+        rgba = (cm.Blues_r(seaice_forecast[day]) * 255).astype(np.uint8)
         img = Image.fromarray(rgba[::-1, :, :], mode="RGBA")  # flip: image row 0 = north
         out_path = out_dir / f"day_{day:02d}.png"
         img.save(out_path)
