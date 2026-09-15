@@ -87,10 +87,31 @@ class SeaIceSequenceDataset(Dataset):
         return torch.from_numpy(x_seq), torch.from_numpy(target)
 
 
-def train(model, train_loader, val_loader, epochs: int = 20, lr: float = 1e-3, device: str = "cpu", quiet: bool = False):
+def train(model, train_loader, val_loader, epochs: int = 20, lr: float = 1e-3, device: str = "cpu",
+          quiet: bool = False, patience: int = 3, rolling_checkpoint_path=None):
+    """
+    Early-stops when val_loss hasn't improved for `patience` epochs, and
+    keeps (returns) the BEST-val_loss state, not just whatever the last
+    epoch happened to land on -- a model can get slightly worse after its
+    real best epoch (this run's own 5-epoch plateau is a real example).
+
+    rolling_checkpoint_path: if given, save the state_dict there every
+    time a new best is found -- a real safety net against a long run
+    being killed/crashing mid-way with NOTHING persisted (this training
+    script previously only saved once, at the very end, after ALL epochs
+    -- fine until a real ~9hr run's rate dropped overnight and made
+    finishing all 20 epochs impractical despite having converged hours
+    earlier with nothing to show for it).
+    """
+    import copy
+
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = torch.nn.MSELoss()
+
+    best_val_loss = float("inf")
+    best_state = None
+    epochs_since_best = 0
 
     for epoch in range(epochs):
         model.train()
@@ -111,11 +132,29 @@ def train(model, train_loader, val_loader, epochs: int = 20, lr: float = 1e-3, d
                 x_seq, target = x_seq.to(device), target.to(device)
                 pred = model(x_seq)
                 val_loss += loss_fn(pred, target).item()
+        val_loss /= len(val_loader)
 
         if not quiet:
             print(f"Epoch {epoch+1}/{epochs} — train_loss={train_loss/len(train_loader):.4f} "
-                  f"val_loss={val_loss/len(val_loader):.4f}")
+                  f"val_loss={val_loss:.4f}")
 
+        if val_loss < best_val_loss - 1e-5:
+            best_val_loss = val_loss
+            best_state = copy.deepcopy(model.state_dict())
+            epochs_since_best = 0
+            if rolling_checkpoint_path is not None:
+                torch.save({"model_state_dict": best_state, "val_loss": best_val_loss,
+                            "epoch": epoch + 1}, rolling_checkpoint_path)
+        else:
+            epochs_since_best += 1
+            if epochs_since_best >= patience:
+                if not quiet:
+                    print(f"Early stopping: no val_loss improvement for {patience} epochs "
+                          f"(best={best_val_loss:.4f} at epoch {epoch + 1 - epochs_since_best})")
+                break
+
+    if best_state is not None:
+        model.load_state_dict(best_state)
     return model
 
 
@@ -145,6 +184,10 @@ if __name__ == "__main__":
     parser.add_argument("--kernel-size", type=int, default=3)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--patience", type=int, default=3,
+                         help="Early-stop after this many epochs with no real held-out val_loss "
+                              "improvement -- avoids grinding through a fixed epoch count long "
+                              "after the model has already converged.")
     parser.add_argument("--extra-vars", default="",
                          help="Comma-separated extra input channels beyond concentration, e.g. "
                               "'wind_u,wind_v,current_u,current_v' -- must exist as variables in "
@@ -185,7 +228,9 @@ if __name__ == "__main__":
         input_dim=1 + len(extra_vars), hidden_dim=args.hidden_dim,
         kernel_size=args.kernel_size, num_layers=args.num_layers,
     )
-    model = train(model, train_loader, val_loader, epochs=args.epochs, lr=args.lr)
+    rolling_ckpt_path = Path(str(args.save_checkpoint) + ".rolling.pt")
+    model = train(model, train_loader, val_loader, epochs=args.epochs, lr=args.lr,
+                  patience=args.patience, rolling_checkpoint_path=rolling_ckpt_path)
 
     # Compare against baselines on the same held-out (val) window — the
     # comparison table is the deliverable, not just the trained model.
