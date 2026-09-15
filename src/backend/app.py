@@ -21,8 +21,9 @@ from pydantic import BaseModel
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.integration.journey_report import plan_journey, ICE_CLASS_PROFILES  # noqa: E402
+from src.utils.paths import OUTPUT_ROOT  # noqa: E402
 
-OUTPUT_DIR = Path(__file__).resolve().parents[2] / "outputs"
+OUTPUT_DIR = OUTPUT_ROOT
 
 app = FastAPI(title="Antarctic Navigation Platform API")
 

@@ -48,6 +48,7 @@ export default function VoyageReport({ report, manifest, onPlanAnother }) {
               seaIceUrl={seaIceUrl}
               showSeaIce={showSeaIce}
               seaIceOpacity={seaIceOpacity}
+              siteMarkers={manifest?.domain?.site_markers || []}
             />
             <Legend />
             <DaySlider

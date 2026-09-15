@@ -119,6 +119,26 @@ LAYER 4 — COMMUNICATION   dashboard: forecast maps, drift cones, route compari
 
 ## Quickstart (what's runnable right now)
 
+### Select an operating domain
+
+The original Weddell validation case remains the default. To build data and
+outputs for the Maitri resupply corridor instead, select the domain before
+running any Python command in that terminal:
+
+```powershell
+$env:ANTARCTIC_DOMAIN = "maitri_india_bay"
+python src/data/download_bathymetry.py
+python src/data/download_weather.py
+python -m src.integration.pipeline
+```
+
+Maitri-domain inputs and models are isolated under
+`data/domains/maitri_india_bay/`, and its dashboard products are written to
+`outputs/maitri_india_bay/`. The ship destination is the India Bay unloading
+site; Maitri station is shown as an inland, non-navigable reference marker.
+Unset the variable (or set it to `weddell_validation`) to return to the
+existing Weddell workflow.
+
 ```
 python -m venv venv && venv\Scripts\activate      # Windows; use source venv/bin/activate elsewhere
 pip install -r requirements.txt

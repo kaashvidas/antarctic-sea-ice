@@ -10,10 +10,11 @@ function toNum(v) {
 }
 
 export default function JourneyPlanner({ manifest, iceClasses, onPlanned }) {
-  const [startLat, setStartLat] = useState('-65.5')
-  const [startLon, setStartLon] = useState('-57.0')
-  const [goalLat, setGoalLat] = useState('-56.5')
-  const [goalLon, setGoalLon] = useState('-37.0')
+  const routeDefaults = manifest?.domain?.default_route
+  const [startLat, setStartLat] = useState(String(routeDefaults?.start?.lat ?? -65.5))
+  const [startLon, setStartLon] = useState(String(routeDefaults?.start?.lon ?? -57.0))
+  const [goalLat, setGoalLat] = useState(String(routeDefaults?.goal?.lat ?? -56.5))
+  const [goalLon, setGoalLon] = useState(String(routeDefaults?.goal?.lon ?? -37.0))
   const [departure, setDeparture] = useState('2026-09-15T06:00')
   const [speed, setSpeed] = useState(String(DEFAULT_SPEED))
   const [iceClass, setIceClass] = useState('')
@@ -153,9 +154,15 @@ export default function JourneyPlanner({ manifest, iceClasses, onPlanned }) {
       </form>
 
       <div className="planner-map-pane">
-        <div className="planner-map-label">Weddell Sea — click to set start / destination</div>
+        <div className="planner-map-label">{manifest?.domain?.label || 'Weddell Sea'} — click to set start / destination</div>
         {bounds ? (
-          <LocatorMap bounds={bounds} start={start} goal={goal} onPick={handleMapPick} />
+          <LocatorMap
+            bounds={bounds}
+            start={start}
+            goal={goal}
+            siteMarkers={manifest?.domain?.site_markers || []}
+            onPick={handleMapPick}
+          />
         ) : (
           <div className="map-loading">Loading chart bounds…</div>
         )}

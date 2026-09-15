@@ -22,8 +22,9 @@ import requests
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.utils.grid import lat_lon_bounds  # noqa: E402
+from src.utils.paths import domain_raw_dir  # noqa: E402
 
-RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "bathymetry"
+RAW_DIR = domain_raw_dir("bathymetry")
 
 IMAGE_SERVER_URL = (
     "https://gis.ngdc.noaa.gov/arcgis/rest/services/DEM_mosaics/"
@@ -31,7 +32,7 @@ IMAGE_SERVER_URL = (
 )
 
 
-def download(out_dir: Path = RAW_DIR, out_name: str = "weddell_bathymetry.tif",
+def download(out_dir: Path = RAW_DIR, out_name: str | None = None,
              pixels_per_degree: int = 16) -> Path:
     """
     Export a GeoTIFF subset of the global DEM mosaic cropped to GRID's
@@ -40,6 +41,9 @@ def download(out_dir: Path = RAW_DIR, out_name: str = "weddell_bathymetry.tif",
     is plenty since preprocess.py will regrid this onto the shared grid
     anyway; no need to pull the ImageServer's native ~30m resolution.
     """
+    from src.utils.grid import GRID
+
+    out_name = out_name or GRID.bathymetry_filename
     lon_min, lat_min, lon_max, lat_max = lat_lon_bounds()
     width = max(1, round((lon_max - lon_min) * pixels_per_degree))
     height = max(1, round((lat_max - lat_min) * pixels_per_degree))

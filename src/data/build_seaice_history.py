@@ -24,9 +24,10 @@ import xarray as xr
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.data.preprocess import regrid_seaice_bremen  # noqa: E402
 from src.utils.grid import lat_lon_mesh  # noqa: E402
+from src.utils.paths import PROCESSED_ROOT, shared_raw_dir  # noqa: E402
 
-RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "seaice_bremen"
-PROCESSED_DIR = Path(__file__).resolve().parents[2] / "data" / "processed"
+RAW_DIR = shared_raw_dir("seaice_bremen")
+PROCESSED_DIR = PROCESSED_ROOT
 MAX_GAP_DAYS_TO_INTERPOLATE = 2
 
 

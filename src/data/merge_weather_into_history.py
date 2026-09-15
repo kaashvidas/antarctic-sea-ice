@@ -18,9 +18,10 @@ import xarray as xr
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.data.preprocess import interpolate_weather_samples_historical  # noqa: E402
+from src.utils.paths import PROCESSED_ROOT, domain_raw_dir  # noqa: E402
 
-PROCESSED_DIR = Path(__file__).resolve().parents[2] / "data" / "processed"
-WEATHER_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "weather"
+PROCESSED_DIR = PROCESSED_ROOT
+WEATHER_DIR = domain_raw_dir("weather")
 
 
 def build(seaice_history_path=None, out_name: str = "seaice_history_with_weather.nc") -> Path:

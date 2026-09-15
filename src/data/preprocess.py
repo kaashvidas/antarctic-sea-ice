@@ -18,8 +18,9 @@ import xarray as xr
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.utils.grid import GRID, lat_lon_mesh  # noqa: E402
+from src.utils.paths import PROCESSED_ROOT  # noqa: E402
 
-PROCESSED_DIR = Path(__file__).resolve().parents[2] / "data" / "processed"
+PROCESSED_DIR = PROCESSED_ROOT
 
 
 def crop_to_domain(ds: xr.Dataset, lat_name="latitude", lon_name="longitude") -> xr.Dataset:

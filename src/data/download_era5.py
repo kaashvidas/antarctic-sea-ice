@@ -26,8 +26,9 @@ import cdsapi
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.utils.grid import lat_lon_bounds  # noqa: E402
+from src.utils.paths import domain_raw_dir  # noqa: E402
 
-RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "era5"
+RAW_DIR = domain_raw_dir("era5")
 
 
 def download(year: str, month: str, days: list[str], out_file: str = None):

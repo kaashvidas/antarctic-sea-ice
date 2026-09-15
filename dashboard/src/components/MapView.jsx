@@ -1,4 +1,4 @@
-import { MapContainer, TileLayer, useMap } from 'react-leaflet'
+import { CircleMarker, MapContainer, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import { useEffect } from 'react'
 import SeaIceOverlay from './SeaIceOverlay'
 import IcebergLayer from './IcebergLayer'
@@ -29,6 +29,7 @@ export default function MapView({
   seaIceUrl,
   showSeaIce,
   seaIceOpacity,
+  siteMarkers = [],
 }) {
   const center = bounds
     ? [(bounds[0][0] + bounds[1][0]) / 2, (bounds[0][1] + bounds[1][1]) / 2]
@@ -42,6 +43,21 @@ export default function MapView({
       <SeaIceOverlay url={seaIceUrl} bounds={bounds} opacity={seaIceOpacity} visible={showSeaIce} />
 
       <RouteLayer optimizedPath={optimizedPath} naivePath={naivePath} start={start} goal={goal} />
+      {siteMarkers.map((site) => (
+        <CircleMarker
+          key={site.id}
+          center={[site.lat, site.lon]}
+          radius={site.kind === 'research_station' ? 5 : 6}
+          pathOptions={{
+            color: site.navigable ? '#7bdff2' : '#f2c14e',
+            weight: 2,
+            fillColor: '#14232d',
+            fillOpacity: 0.9,
+          }}
+        >
+          <Tooltip direction="right" offset={[7, 0]}>{site.label}</Tooltip>
+        </CircleMarker>
+      ))}
       <IcebergLayer icebergs={icebergs} />
     </MapContainer>
   )

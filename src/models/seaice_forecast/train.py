@@ -119,9 +119,10 @@ def chronological_splits(n_time: int, train_frac=0.7, val_frac=0.15):
 if __name__ == "__main__":
     import argparse
     from pathlib import Path
+    from src.utils.paths import PROCESSED_ROOT
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--processed-path", default="data/processed/seaice_history.nc")
+    parser.add_argument("--processed-path", default=str(PROCESSED_ROOT / "seaice_history.nc"))
     parser.add_argument("--input-seq-len", type=int, default=7)
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=4)
@@ -130,7 +131,7 @@ if __name__ == "__main__":
                               "'wind_u,wind_v,current_u,current_v' -- must exist as variables in "
                               "--processed-path (see src/data/merge_weather_into_history.py). "
                               "Empty (default) trains concentration-only.")
-    parser.add_argument("--save-checkpoint", default="data/processed/convlstm_checkpoint.pt",
+    parser.add_argument("--save-checkpoint", default=str(PROCESSED_ROOT / "convlstm_checkpoint.pt"),
                          help="Where to save the trained model — src/integration/pipeline.py's "
                               "get_seaice_concentration() looks for a checkpoint at exactly this "
                               "default path and switches from persistence to real inference "

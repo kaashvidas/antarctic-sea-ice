@@ -30,8 +30,9 @@ from pathlib import Path
 import requests
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
+from src.utils.paths import shared_raw_dir  # noqa: E402
 
-RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "seaice_bremen"
+RAW_DIR = shared_raw_dir("seaice_bremen")
 
 BASE_URL = "https://data.seaice.uni-bremen.de/amsr2/asi_daygrid_swath/s6250"
 

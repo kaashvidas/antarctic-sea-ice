@@ -28,7 +28,7 @@ function ClickCatcher({ onPick }) {
  * reported up via onPick rather than the map owning its own point state —
  * that keeps the number inputs and the map in sync in one direction.
  */
-export default function LocatorMap({ bounds, start, goal, onPick }) {
+export default function LocatorMap({ bounds, start, goal, siteMarkers = [], onPick }) {
   const center = bounds
     ? [(bounds[0][0] + bounds[1][0]) / 2, (bounds[0][1] + bounds[1][1]) / 2]
     : [-61, -47.5]
@@ -43,6 +43,22 @@ export default function LocatorMap({ bounds, start, goal, onPick }) {
       <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} className="basemap-tiles" />
       {bounds && <FitToBounds bounds={bounds} />}
       <ClickCatcher onPick={onPick} />
+
+      {siteMarkers.map((site) => (
+        <CircleMarker
+          key={site.id}
+          center={[site.lat, site.lon]}
+          radius={site.kind === 'research_station' ? 5 : 6}
+          pathOptions={{
+            color: site.navigable ? '#7bdff2' : '#f2c14e',
+            weight: 2,
+            fillColor: '#14232d',
+            fillOpacity: 0.9,
+          }}
+        >
+          <Tooltip direction="right" offset={[7, 0]}>{site.label}</Tooltip>
+        </CircleMarker>
+      ))}
 
       {startPos && goalPos && (
         <Polyline positions={[startPos, goalPos]} pathOptions={{ color: '#34c3b8', weight: 2, dashArray: '4,5', opacity: 0.8 }} />

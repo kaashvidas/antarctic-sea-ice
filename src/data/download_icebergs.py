@@ -18,13 +18,17 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "icebergs"
+import sys
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+from src.utils.paths import shared_raw_dir  # noqa: E402
+
+RAW_DIR = shared_raw_dir("icebergs")
 
 USNIC_URL = "https://usicecenter.gov/File/DownloadCurrent?pId=134"
 
 
 def download(url: str = USNIC_URL, out_dir: Path = RAW_DIR):
-    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     resp = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
     if resp.status_code != 200:
         raise RuntimeError(

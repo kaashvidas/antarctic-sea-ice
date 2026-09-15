@@ -33,8 +33,9 @@ import requests
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.utils.grid import GRID  # noqa: E402
+from src.utils.paths import domain_raw_dir  # noqa: E402
 
-RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "weather"
+RAW_DIR = domain_raw_dir("weather")
 
 WIND_URL = "https://api.open-meteo.com/v1/gfs"
 CURRENT_URL = "https://marine-api.open-meteo.com/v1/marine"

@@ -42,19 +42,21 @@ import pandas as pd
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.utils.grid import (  # noqa: E402
-    GRID, DEMO_ICEBERG_IDS, lat_lon_mesh, latlon_to_index, index_to_latlon, n_grid_cells,
+    GRID, DEMO_ICEBERG_IDS, domain_public_metadata, lat_lon_mesh,
+    latlon_to_index, index_to_latlon, n_grid_cells,
 )
 from src.data.preprocess import regrid_bathymetry, regrid_seaice_bremen, interpolate_weather_samples  # noqa: E402
 from src.models.iceberg_drift.wagner_model import IcebergState, step  # noqa: E402
 from src.models.routing.isochrone import build_cost_grid, astar_route, naive_route  # noqa: E402
+from src.utils.paths import OUTPUT_ROOT, PROCESSED_ROOT, domain_raw_dir, shared_raw_dir  # noqa: E402
 
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
-OUTPUT_DIR = Path(__file__).resolve().parents[2] / "outputs"
-ICEBERG_CSV = DATA_DIR / "raw" / "icebergs" / "antarctic_icebergs_latest.csv"
-BATHY_TIF = DATA_DIR / "raw" / "bathymetry" / "weddell_bathymetry.tif"
-SEAICE_BREMEN_DIR = DATA_DIR / "raw" / "seaice_bremen"
-WEATHER_DIR = DATA_DIR / "raw" / "weather"
-CONVLSTM_CHECKPOINT = DATA_DIR / "processed" / "convlstm_checkpoint.pt"
+DATA_DIR = PROCESSED_ROOT.parent
+OUTPUT_DIR = OUTPUT_ROOT
+ICEBERG_CSV = shared_raw_dir("icebergs") / "antarctic_icebergs_latest.csv"
+BATHY_TIF = domain_raw_dir("bathymetry") / GRID.bathymetry_filename
+SEAICE_BREMEN_DIR = shared_raw_dir("seaice_bremen")
+WEATHER_DIR = domain_raw_dir("weather")
+CONVLSTM_CHECKPOINT = PROCESSED_ROOT / "convlstm_checkpoint.pt"
 
 NM_TO_M = 1852.0
 N_ENSEMBLE = 8               # perturbed drift members per iceberg, for the uncertainty cone
@@ -106,7 +108,7 @@ def load_iceberg_cluster(iceberg_ids=None, csv_path: Path = ICEBERG_CSV) -> list
     grid.py's DEMO_ICEBERG_IDS docstring for provenance). Thickness isn't
     in USNIC's table -- estimate_thickness_m() is a disclosed literature-
     based estimate, not a measurement."""
-    iceberg_ids = iceberg_ids or DEMO_ICEBERG_IDS
+    iceberg_ids = DEMO_ICEBERG_IDS if iceberg_ids is None else iceberg_ids
     if not csv_path.exists():
         raise FileNotFoundError(f"{csv_path} not found — run src/data/download_icebergs.py first.")
 
@@ -187,7 +189,7 @@ def _run_convlstm_forecast(horizon_days: int):
     input_seq_len = checkpoint.get("input_seq_len", 7)
 
     history_name = "seaice_history_with_weather.nc" if extra_vars else "seaice_history.nc"
-    history_path = DATA_DIR / "processed" / history_name
+    history_path = PROCESSED_ROOT / history_name
     if not history_path.exists():
         raise FileNotFoundError(
             f"{history_path} not found — run src/data/build_seaice_history.py "
@@ -500,8 +502,8 @@ def run_pipeline(forecast_date: str = None):
     # Start/goal: real open-water points bracketing the tracked cluster --
     # a southern approach near D33A/D33D and a northern approach near D32,
     # snapped onto real bathymetry-confirmed open water.
-    start = find_open_water(bathymetry, -65.5, -57.0)
-    goal = find_open_water(bathymetry, -56.5, -37.0)
+    start = find_open_water(bathymetry, *GRID.default_route_start)
+    goal = find_open_water(bathymetry, *GRID.default_route_goal)
     print(f"start grid idx={start} ({index_to_latlon(*start)}), goal grid idx={goal} ({index_to_latlon(*goal)})")
 
     optimized_path = astar_route(cost_grid, start, goal)
@@ -605,6 +607,7 @@ def write_manifest(forecast_date: str, iceberg_cluster, seaice_image_paths=None,
     guess."""
     source_info = source_info or {}
     manifest = {
+        "domain": domain_public_metadata(),
         "forecast_date": forecast_date,
         "forecast_horizon_days": GRID.forecast_horizon_days,
         "bounds": {"lon_min": GRID.lon_min, "lon_max": GRID.lon_max,

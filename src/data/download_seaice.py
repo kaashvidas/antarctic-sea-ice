@@ -23,8 +23,9 @@ import xarray as xr
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.utils.grid import GRID, lat_lon_bounds  # noqa: E402
 from src.utils.plotting import quicklook  # noqa: E402
+from src.utils.paths import shared_raw_dir  # noqa: E402
 
-RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "seaice"
+RAW_DIR = shared_raw_dir("seaice")
 
 
 def download(start_date: str, end_date: str, out_dir: Path = RAW_DIR):
