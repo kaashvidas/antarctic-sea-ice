@@ -28,6 +28,15 @@ export default function Legend() {
           <span>Close-approach warning</span>
         </div>
       </div>
+
+      <div className="legend-section">
+        <div className="legend-label">Sea-ice concentration</div>
+        <div className="legend-gradient-bar" />
+        <div className="legend-gradient-labels">
+          <span>0% (open water)</span>
+          <span>100% (dense ice)</span>
+        </div>
+      </div>
     </div>
   )
 }

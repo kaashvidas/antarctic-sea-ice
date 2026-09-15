@@ -403,6 +403,14 @@
   padding: var(--sp-4) var(--sp-5);
 }
 
+.route-rationale {
+  flex-basis: 100%;
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-body);
+  color: var(--text-1);
+  line-height: 1.5;
+}
+
 .summary-readouts {
   display: flex;
   gap: var(--sp-7);
@@ -582,6 +590,29 @@
 }
 .legend-swatch.dot.warn {
   border-color: var(--accent-red);
+}
+.legend-label {
+  font-size: var(--fs-micro);
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: var(--sp-1);
+}
+.legend-gradient-bar {
+  height: 10px;
+  border-radius: 3px;
+  /* Matches the map overlay's real colormap (matplotlib Blues_r): dark
+     blue = open water (0%), white = dense ice (100%) -- see
+     src/integration/pipeline.py's write_seaice_images(). */
+  background: linear-gradient(to right, #08306b, #4292c6, #c6dbef, #ffffff);
+  border: 1px solid var(--border);
+}
+.legend-gradient-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--fs-micro);
+  color: var(--text-3);
+  margin-top: 2px;
 }
 
 /* ---------- day slider control ---------- */
