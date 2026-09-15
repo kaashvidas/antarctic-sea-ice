@@ -106,4 +106,11 @@ def test_real_bathymetry_regrids_to_grid_shape():
     n_lon, n_lat = n_grid_cells()
     assert bathy.shape == (n_lat, n_lon)
     assert np.isfinite(bathy).all()
-    assert (bathy < 0).mean() > 0.8  # Weddell Sea box should be mostly ocean
+    # Every region's box is padded around a real coastal iceberg cluster,
+    # so it should be majority ocean -- but NOT uniformly >80%: Weddell's
+    # box is centered further from the coast than e.g. Prydz Bay's (real,
+    # confirmed 61% ocean, more of the Antarctic coastline/Amery Ice Shelf
+    # area in-frame), so this threshold is deliberately loose enough to
+    # hold across regions rather than baking in one region's specific
+    # geography.
+    assert (bathy < 0).mean() > 0.5

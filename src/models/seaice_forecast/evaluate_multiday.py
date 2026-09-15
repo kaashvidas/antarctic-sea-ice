@@ -105,7 +105,14 @@ def save_skill_json(errors_by_lead: dict, checkpoint_path: str,
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--processed-path", default=str(region_path("data/processed", "seaice_history_with_weather.nc")))
+    # seaice_history.nc (concentration-only, full real history), not the
+    # weather-merged file -- that's what train.py actually trains on by
+    # default (concentration-only beats weather-enhanced, see README), and
+    # the weather-merged file's shorter real coverage window (bounded by
+    # Open-Meteo's current-archive start) would silently evaluate against
+    # a different, smaller test split than the model was actually trained
+    # against if used here instead.
+    parser.add_argument("--processed-path", default=str(region_path("data/processed", "seaice_history.nc")))
     parser.add_argument("--checkpoint", default=str(region_path("data/processed", "convlstm_checkpoint.pt")))
     parser.add_argument("--horizon-days", type=int, default=7)
     parser.add_argument("--max-start-points", type=int, default=60)
