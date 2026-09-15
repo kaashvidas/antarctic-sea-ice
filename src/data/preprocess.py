@@ -218,7 +218,18 @@ def interpolate_weather_samples(wind_csv, current_csv):
     def _interp_all_days(df, value_col):
         out = np.zeros((n_days, n_lat, n_lon), dtype=np.float32)
         for day in range(n_days):
-            day_df = df[df["day"] == day]
+            day_df = df[df["day"] == day].dropna(subset=[value_col])
+            # Real regional gaps exist in Open-Meteo's marine current model
+            # (found the hard way: ~45% of one region's sample points came
+            # back NaN, all near the coast) -- griddata doesn't drop NaN
+            # VALUES on its own, so an unfiltered call here silently
+            # poisons the whole day's interpolation with NaN, not just the
+            # gappy points. Dropping them first means we interpolate from
+            # whatever real coverage exists, same honest-data principle as
+            # everywhere else in this pipeline.
+            if day_df.empty:
+                out[day] = out[day - 1] if day > 0 else 0.0
+                continue
             points = day_df[["lat", "lon"]].values
             values = day_df[value_col].values
             out[day] = griddata(points, values, (target_lat_grid, target_lon_grid), method="linear")
@@ -263,9 +274,24 @@ def interpolate_weather_samples_historical(wind_csv, current_csv, dates):
     def _interp_all_dates(df, value_col):
         out = np.zeros((len(dates), n_lat, n_lon), dtype=np.float32)
         for i, date in enumerate(dates):
-            day_df = df[df["date"].dt.normalize() == date]
+            # .dropna() first -- real regional gaps in Open-Meteo's marine
+            # current model (found via a region where ~45% of sample
+            # points came back NaN, concentrated near the coast) otherwise
+            # poison griddata's result for the WHOLE day, not just the
+            # gappy points, since griddata doesn't drop NaN values itself.
+            day_df = df[df["date"].dt.normalize() == date].dropna(subset=[value_col])
             if day_df.empty:
-                out[i] = out[i - 1] if i > 0 else 0.0  # real data gap -- hold last real day, disclosed via caller
+                # No real sample at all for this date (either it's before
+                # the CSV's real coverage starts, or every sample point
+                # was NaN) -- return real NaN, not a held-forward value,
+                # so the caller's own gap-bridging/dropping logic (see
+                # merge_weather_into_history.py's interpolate_na +
+                # explicit long-gap drop) can see and handle it honestly.
+                # A silently-held value would look identical to real data
+                # to every downstream NaN check, which is exactly the bug
+                # that previously let a multi-YEAR pre-coverage gap pass
+                # as "5169/5169 days, 0 dropped" instead of being caught.
+                out[i] = np.nan
                 continue
             points = day_df[["lat", "lon"]].values
             values = day_df[value_col].values
