@@ -89,7 +89,12 @@ def test_disclosure_reflects_real_data_sources():
     assert "sea_ice_concentration" in sources
     assert "wind_and_current" in sources
     assert isinstance(sources["sea_ice_concentration"]["is_real_data"], bool)
-    # icebergs must carry the real thickness disclosure, not a silent number
+    # No unmeasured thickness field should ever reach the API -- no public
+    # dataset gives real per-iceberg thickness for this cluster (see
+    # pipeline.py's _UNUSED_THICKNESS_M comment), so it's not displayed
+    # as data anywhere, real length/width only.
     for ib in report["icebergs"]:
-        assert ib["is_placeholder_thickness"] is True
-        assert ib["thickness_m"] > 0
+        assert "thickness_m" not in ib
+        assert "is_placeholder_thickness" not in ib
+        assert ib["length_m"] > 0
+        assert ib["width_m"] > 0

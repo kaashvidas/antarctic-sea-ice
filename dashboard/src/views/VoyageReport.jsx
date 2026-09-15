@@ -28,7 +28,7 @@ export default function VoyageReport({ report, manifest, onPlanAnother }) {
     <div className="report">
       <DisclosureBanner
         dataSources={report.disclosure.data_sources}
-        note={`${report.disclosure.iceberg_thickness_note} ${report.disclosure.ice_class_table_note}`}
+        note={report.disclosure.ice_class_table_note}
       />
 
       <SummaryHeader report={report} onPlanAnother={onPlanAnother} />

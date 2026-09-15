@@ -251,7 +251,6 @@ def _iceberg_report(iceberg_cluster: list, tracks: dict, optimized_latlon: list,
             "iceberg_id": iceberg_id,
             "current_position": {"lat": state.lat, "lon": state.lon},
             "length_m": state.length_m, "width_m": state.width_m,
-            "thickness_m": state.thickness_m, "is_placeholder_thickness": True,
             "predicted_track": [{"day": d, "lat": lat, "lon": lon} for d, (lat, lon) in enumerate(center_track)],
             "drift_uncertainty_radius_km_day7": round(uncertainty_radius_km, 1),
             "closest_approach_km": None if best_day is None else round(best_km, 1),
@@ -401,9 +400,6 @@ def plan_journey(start: dict, goal: dict, departure_time: str, vessel_speed_kmh:
         "icebergs": _iceberg_report(iceberg_cluster, tracks, optimized_latlon, vessel_speed_kmh),
         "disclosure": {
             "data_sources": {"sea_ice_concentration": seaice_info, "wind_and_current": forcing_info},
-            "iceberg_thickness_note": "Estimated from WDE17's published size-class table (see "
-                                       "src/integration/pipeline.py's estimate_thickness_m), not measured "
-                                       "for these specific icebergs -- see each iceberg's thickness_m.",
             "ice_class_table_note": "Simplified stand-in, not an IACS Polar Class regulatory table.",
         },
     }

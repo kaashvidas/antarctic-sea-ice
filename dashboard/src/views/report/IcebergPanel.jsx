@@ -1,16 +1,18 @@
 import { colorForIceberg } from '../../icebergColors'
 
 /**
- * One card per tracked iceberg with a proportional thickness bar so the
- * relative scale across bergs is visible at a glance, not just numbers.
- * thickness_m is always a disclosed placeholder (is_placeholder_thickness),
- * so every card carries an explicit "assumed" tag rather than burying that
- * in fine print.
+ * One card per tracked iceberg -- real USNIC length/width and real WDE17
+ * drift-ensemble uncertainty only. No thickness field: no public dataset
+ * gives real per-iceberg thickness for this cluster (an exhaustive real
+ * ICESat-2 search came up empty), and this project doesn't display a
+ * literature estimate as if it were data -- see src/integration/pipeline.py's
+ * comment on _UNUSED_THICKNESS_M for why the physics engine's internal
+ * IcebergState still carries an unused placeholder value that never
+ * reaches here.
  */
 export default function IcebergPanel({ icebergs }) {
   if (!icebergs || icebergs.length === 0) return null
   const ids = icebergs.map((b) => b.iceberg_id)
-  const maxThickness = Math.max(...icebergs.map((b) => b.thickness_m), 1)
 
   return (
     <div className="panel iceberg-panel">
@@ -18,7 +20,6 @@ export default function IcebergPanel({ icebergs }) {
       <div className="iceberg-cards">
         {icebergs.map((b) => {
           const color = colorForIceberg(b.iceberg_id, ids)
-          const barPct = (b.thickness_m / maxThickness) * 100
           return (
             <div className={`iceberg-card${b.warning ? ' iceberg-card--warning' : ''}`} key={b.iceberg_id}>
               <div className="iceberg-card-head">
@@ -31,14 +32,6 @@ export default function IcebergPanel({ icebergs }) {
                 <div className="iceberg-stat"><span>Width</span><strong>{(b.width_m / 1000).toFixed(1)} km</strong></div>
                 <div className="iceberg-stat"><span>Drift uncertainty (day 7)</span><strong>{b.drift_uncertainty_radius_km_day7} km</strong></div>
               </div>
-              <div className="thickness-row">
-                <span className="thickness-label">Thickness</span>
-                <div className="thickness-bar-track">
-                  <div className="thickness-bar-fill" style={{ width: `${barPct}%`, background: color }} />
-                </div>
-                <span className="thickness-value">{b.thickness_m.toFixed(0)} m</span>
-              </div>
-              {b.is_placeholder_thickness && <span className="tag tag--placeholder">assumed constant, not measured</span>}
             </div>
           )
         })}

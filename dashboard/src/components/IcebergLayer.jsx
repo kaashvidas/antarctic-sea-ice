@@ -43,13 +43,11 @@ export default function IcebergLayer({ icebergs }) {
                   <tbody>
                     <tr><td>Length</td><td className="value">{(berg.length_m / 1000).toFixed(1)} km</td></tr>
                     <tr><td>Width</td><td className="value">{(berg.width_m / 1000).toFixed(1)} km</td></tr>
-                    <tr><td>Thickness</td><td className="value">{berg.thickness_m.toFixed(0)} m*</td></tr>
                     {berg.closest_approach_km != null && (
                       <tr><td>Closest approach</td><td className="value">{berg.closest_approach_km} km (day {berg.closest_approach_day})</td></tr>
                     )}
                   </tbody>
                 </table>
-                {berg.is_placeholder_thickness && <p className="popup-note">*assumed constant, not measured</p>}
               </Popup>
             </CircleMarker>
           </Fragment>

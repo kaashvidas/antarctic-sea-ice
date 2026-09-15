@@ -17,9 +17,6 @@ NO-LOGIN alternatives are now wired in instead:
     model), a genuine multi-day forecast, sampled at ~70 real points
     across the domain and interpolated onto the shared grid. See
     get_forcing_fields().
-  - Iceberg thickness: WDE17's own published size-class table
-    (length -> draft/thickness), not a flat guess. See
-    estimate_thickness_m().
 The original synthetic placeholders (placeholder_seaice_concentration,
 placeholder_forcing_fields) are kept as a last-resort fallback if the
 real-data files haven't been downloaded yet — every function that can
@@ -69,47 +66,21 @@ DT_SECONDS = 24 * 3600
 # returned info dict, which is accurate per-run rather than a fixed list.
 PLACEHOLDER_INPUTS = ["sea_ice_concentration", "wind_field", "current_field"]
 
-# WDE17's published iceberg size classes ([length, width, height] in
-# meters — see src/models/iceberg_drift/wagner_model.py's module
-# docstring for the same source notebook). Real estimate_thickness_m()
-# extrapolates from this rather than assuming one flat number for every
-# iceberg regardless of size.
-_WDE17_BERGDIMS_LWH = [
-    (100, 67, 67), (200, 133, 133), (300, 200, 200), (400, 267, 267),
-    (500, 333, 300), (600, 400, 300), (750, 500, 300), (900, 600, 300),
-    (1200, 800, 300), (1500, 1000, 300),
-]
-
-
-def estimate_thickness_m(length_m: float) -> float:
-    """
-    Thickness/draft estimate from WDE17's published length->height size
-    classes, clamped at the table's ends rather than extrapolated beyond
-    them. NOTE: every iceberg in this build's real tracked cluster
-    (D32/D33A-D/D35) is 16-39 km long -- far beyond this table's 1500m
-    max, calved from Antarctic ice shelves rather than glacier termini --
-    so all of them clamp to the table's asymptotic 300m. That's not a
-    bug: real large Antarctic tabular bergs genuinely do have drafts in
-    the 200-300m range regardless of horizontal size, since it's set by
-    the source ice shelf's thickness, not by how large the calved piece
-    is. This still isn't a *measurement* of these specific icebergs --
-    it's a literature-grounded estimate, and the API still discloses it
-    as such (`is_placeholder_thickness`).
-    """
-    lengths = [d[0] for d in _WDE17_BERGDIMS_LWH]
-    heights = [d[2] for d in _WDE17_BERGDIMS_LWH]
-    if length_m <= lengths[0]:
-        return float(heights[0])
-    if length_m >= lengths[-1]:
-        return float(heights[-1])
-    return float(np.interp(length_m, lengths, heights))
+# Real WDE17 drift physics (wagner_model.py) needs IcebergState.thickness_m
+# as a field, but never actually reads it unless real SST is passed into
+# step() (for melt_rates()) -- which nothing in this live pipeline does.
+# No public dataset gives real per-iceberg thickness for this build's
+# tracked cluster (an exhaustive real ICESat-2 ATL10 search came up empty
+# -- see src/data/lookup_iceberg_thickness_icesat2.py's docstring), and a
+# literature-based estimate isn't real data either, so this is a fixed
+# internal placeholder -- never surfaced via the API or UI, not treated
+# as a measurement anywhere.
+_UNUSED_THICKNESS_M = 0.0
 
 
 def load_iceberg_cluster(iceberg_ids=None, csv_path: Path = ICEBERG_CSV) -> list:
     """Real USNIC positions/sizes for this build's demo cluster (see
-    grid.py's DEMO_ICEBERG_IDS docstring for provenance). Thickness isn't
-    in USNIC's table -- estimate_thickness_m() is a disclosed literature-
-    based estimate, not a measurement."""
+    grid.py's DEMO_ICEBERG_IDS docstring for provenance)."""
     iceberg_ids = iceberg_ids or DEMO_ICEBERG_IDS
     if not csv_path.exists():
         raise FileNotFoundError(f"{csv_path} not found — run src/data/download_icebergs.py first.")
@@ -134,7 +105,7 @@ def load_iceberg_cluster(iceberg_ids=None, csv_path: Path = ICEBERG_CSV) -> list
                 lat=float(row["Latitude"]), lon=float(row["Longitude"]),
                 length_m=length_m,
                 width_m=float(row["Width (NM)"]) * NM_TO_M,
-                thickness_m=estimate_thickness_m(length_m),
+                thickness_m=_UNUSED_THICKNESS_M,
             ),
         })
     return states
