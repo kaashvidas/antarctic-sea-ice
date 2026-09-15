@@ -21,9 +21,11 @@ from pathlib import Path
 import requests
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
-from src.utils.grid import lat_lon_bounds  # noqa: E402
+from src.utils.grid import lat_lon_bounds, region_path  # noqa: E402
 
-RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "bathymetry"
+# Region-scoped: bathymetry is cropped to GRID's bounding box at download
+# time, so a different active region needs its own file, not a shared one.
+RAW_DIR = region_path("data/raw", "bathymetry")
 
 IMAGE_SERVER_URL = (
     "https://gis.ngdc.noaa.gov/arcgis/rest/services/DEM_mosaics/"
@@ -31,7 +33,7 @@ IMAGE_SERVER_URL = (
 )
 
 
-def download(out_dir: Path = RAW_DIR, out_name: str = "weddell_bathymetry.tif",
+def download(out_dir: Path = RAW_DIR, out_name: str = "bathymetry.tif",
              pixels_per_degree: int = 16) -> Path:
     """
     Export a GeoTIFF subset of the global DEM mosaic cropped to GRID's

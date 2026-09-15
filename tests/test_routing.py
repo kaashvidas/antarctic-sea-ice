@@ -12,8 +12,10 @@ import pytest
 from src.models.routing.isochrone import (
     build_cost_grid, build_cost_grid_stack, astar_route, naive_route, isochrone_route,
 )
+from src.utils.grid import region_path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+_BATHY_TIF = region_path("data/raw", "bathymetry", "bathymetry.tif")
 
 
 def _synthetic_cost_grid(n=20, wall_col=10):
@@ -95,15 +97,12 @@ def test_isochrone_finds_real_time_varying_shortcut():
     assert arrival_hours > 48  # genuinely took more than 2 days, consistent with waiting out the ice
 
 
-@pytest.mark.skipif(
-    not (REPO_ROOT / "data" / "raw" / "bathymetry" / "weddell_bathymetry.tif").exists(),
-    reason="real bathymetry not downloaded on this machine",
-)
+@pytest.mark.skipif(not _BATHY_TIF.exists(), reason="real bathymetry not downloaded on this machine")
 def test_real_bathymetry_regrids_to_grid_shape():
     from src.data.preprocess import regrid_bathymetry
     from src.utils.grid import n_grid_cells
 
-    bathy = regrid_bathymetry(REPO_ROOT / "data" / "raw" / "bathymetry" / "weddell_bathymetry.tif")
+    bathy = regrid_bathymetry(_BATHY_TIF)
     n_lon, n_lat = n_grid_cells()
     assert bathy.shape == (n_lat, n_lon)
     assert np.isfinite(bathy).all()

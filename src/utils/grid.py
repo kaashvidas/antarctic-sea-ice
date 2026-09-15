@@ -8,40 +8,50 @@ must output on the *same* spatial grid and the *same* forecast timestamps,
 or Phase 5 integration turns into a regridding nightmare the night before
 the deadline.
 
-How the bounds below were chosen (2026-09-12): A23a, the README's original
-validation-case iceberg, has genuinely disintegrated (BAS/NASA Worldview
-reporting through early-mid 2026 — it lost ~99% of its area and dropped
-off the tracked list). Pulling the live USNIC Antarctic iceberg feed
-(src/data/download_icebergs.py) on this date instead shows a real cluster
-of six tracked bergs in the Weddell Sea — D32, D33A, D33B, D33C, D33D,
-D35 — clustered at lon -55.6 to -39.1, lat -64.0 to -58.0. The box below
-is that cluster's real bounding extent padded by ~4 degrees on each side
-for open-water routing margin, rounded to clean numbers. This keeps the
-README's own "Weddell Sea is the best-studied sector" framing while being
-driven by an actual live data pull rather than a guess.
+--- Multi-region support (added 2026-09-15) ---
+
+This project started Weddell-Sea-only. `REGIONS` below is a registry of
+named `DomainGrid`s so multiple people can work on different Antarctic
+sectors without stepping on each other's files: `GRID` and
+`DEMO_ICEBERG_IDS` still resolve to a single "active" region (selected via
+the `REGION` environment variable, default `weddell`), so every existing
+import of `GRID`/`DEMO_ICEBERG_IDS` elsewhere in the codebase keeps working
+completely unchanged — nothing outside this file needs to know a registry
+exists. What DOES need to change elsewhere: any hardcoded `data/raw/...`
+or `data/processed/...` path must switch to `region_path()` below so two
+regions' processed files/checkpoints don't collide. See PROJECT_STATUS.md
+for the full regional-expansion plan and why this was the blocking item.
+
+Known real limitation: `DomainGrid` assumes `lon_min < lon_max` (a simple
+non-wrapping box) — a region whose natural box crosses the antimeridian
+(180°/-180°) isn't representable without extending `lat_lon_mesh()` etc.
+to handle wraparound, which hasn't been done. `ross_sea` below is scoped
+to avoid crossing it (see that entry's comment) rather than fix this
+properly — a real simplification, not a silent bug, but worth knowing if
+you pick a region near the dateline.
 """
 
+import os
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
 class DomainGrid:
-    """Defines the bounded Southern Ocean sector every module operates on."""
+    """Defines a bounded Southern Ocean sector every module operates on."""
 
-    lon_min: float = -60.0
-    lon_max: float = -35.0
-    lat_min: float = -68.0
-    lat_max: float = -54.0
+    lon_min: float
+    lon_max: float
+    lat_min: float
+    lat_max: float
 
     resolution_deg: float = 0.25   # ~25km at these latitudes, matches native NSIDC CDR grid
-    # NOTE (in progress): raising this to 0.125deg (~14km) -- AMSR2 Bremen's
-    # own native resolution is 6.25km, so regridding straight down to 25km
-    # discards real sub-grid ice-edge structure. Staged as one atomic swap
-    # together with rebuilding data/processed/*.nc and retraining, once the
-    # extended (2012-present) AMSR2 download finishes -- flipping this
-    # alone first would break the live app (shape mismatch against the
-    # still-0.25deg cached history files) for however long the rebuild
-    # takes, which is avoidable by doing it all in one pass instead.
+    # NOTE (deferred 2026-09-15): raising this to 0.125deg (~14km) -- AMSR2
+    # Bremen's own native resolution is 6.25km, so regridding straight down
+    # to 25km discards real sub-grid ice-edge structure. Deferred because a
+    # combined "more data + higher resolution" run wasn't affordable in one
+    # pass (~4x training compute) -- do it as its own dedicated run, per
+    # region, once there's spare compute budget. See PROJECT_STATUS.md.
 
     forecast_horizon_days: int = 7  # within README's 5-10 day recommended range
 
@@ -54,14 +64,99 @@ class DomainGrid:
     source_crs: str = "EPSG:3412"  # NSIDC's native South polar stereographic CRS
 
 
-# Import this instance everywhere instead of re-instantiating DomainGrid
-# with different numbers in different files.
-GRID = DomainGrid()
+# --- Region registry -------------------------------------------------------
+#
+# Bounding boxes below follow the same convention as the original Weddell
+# Sea box: pad a real, currently-tracked iceberg cluster's extent by ~4-5
+# degrees for open-water routing margin, rounded to clean numbers. Provenance
+# for each is in that region's comment -- don't add a region here without a
+# real data check (a live USNIC pull + a look at the BYU/NIC historical
+# database) backing the bounding box and iceberg list, per this project's
+# own no-guessing rule.
 
-# The live-tracked iceberg cluster this build's demo scenario centers on
-# (see docstring above for provenance/date). Update this list if you
-# re-run download_icebergs.py later and the tracked set has changed.
-DEMO_ICEBERG_IDS = ["D32", "D33A", "D33B", "D33C", "D33D", "D35"]
+REGIONS = {
+    # Original region. Bounds chosen 2026-09-12 from a live USNIC pull: a
+    # real cluster of six tracked bergs (D32, D33A-D, D35) at lon -55.6 to
+    # -39.1, lat -64.0 to -58.0, padded ~4 degrees each side.
+    "weddell": DomainGrid(lon_min=-60.0, lon_max=-35.0, lat_min=-68.0, lat_max=-54.0),
+
+    # Prydz Bay / Larsemann Hills, near India's Bharati station (69.41S
+    # 76.19E). Bounds chosen 2026-09-15 from a live USNIC pull: real
+    # tracked bergs D15A/B/C/D, D23, D34 at lon 74.7-82.1E, lat -69.44 to
+    # -66.63, padded to comfortably include Bharati itself. Several of
+    # these bergs have deep real historical tracks in the BYU/NIC database
+    # (D15A: 3,392 rows, D15B: 3,682 rows) -- likely as strong a drift-
+    # validation case as the Weddell cluster. Highest-priority expansion
+    # region -- see PROJECT_STATUS.md section 6.
+    "prydz_bay": DomainGrid(lon_min=66.0, lon_max=90.0, lat_min=-73.0, lat_max=-60.0),
+
+    # Queen Maud Land, near India's Maitri station (70.77S 11.73E). Bounds
+    # centered on Maitri itself, padded to a similar box size as the other
+    # regions. Real iceberg presence here is thinner than Prydz Bay as of
+    # the 2026-09-15 check -- only D37 (36.36E, -69.21) was found nearby,
+    # outside this box. RE-CHECK the live USNIC feed and BYU database for
+    # this region's actual iceberg cluster before relying on
+    # REGION_ICEBERG_IDS["queen_maud_land"] below -- it's a provisional
+    # placeholder, not a verified cluster like the other two regions.
+    "queen_maud_land": DomainGrid(lon_min=-5.0, lon_max=25.0, lat_min=-75.0, lat_max=-62.0),
+
+    # Ross Sea / McMurdo Sound (77.85S 166.67E) -- not an Indian station,
+    # but a globally significant, heavily-trafficked research hub (US
+    # McMurdo, NZ Scott Base). Bounds chosen 2026-09-15 from a live USNIC
+    # pull: real tracked bergs B22A (164.79E, -69.88) and B22H (163.70E,
+    # -70.21) fall inside; a third real nearby berg, B22F (-176.55E, i.e.
+    # ~183E), was EXCLUDED because it's on the far side of the antimeridian
+    # from McMurdo and this simple bounding-box grid can't represent a
+    # region that wraps 180 degrees (see module docstring). If this
+    # region's iceberg cluster needs B22F, the grid math needs a real
+    # wraparound fix first, not a bounding-box hack.
+    "ross_sea": DomainGrid(lon_min=150.0, lon_max=179.9, lat_min=-78.0, lat_max=-65.0),
+}
+
+# Per-region tracked iceberg cluster, same provenance as each region's
+# bounding box above. Re-verify against a live USNIC pull before starting
+# real work on a region -- positions/tracked-set membership drift over
+# months (this is exactly why grid.py's original docstring says the same
+# about the Weddell cluster).
+REGION_ICEBERG_IDS = {
+    "weddell": ["D32", "D33A", "D33B", "D33C", "D33D", "D35"],
+    "prydz_bay": ["D15A", "D15B", "D15C", "D15D", "D23", "D34"],
+    "queen_maud_land": ["D37"],  # provisional -- see REGIONS["queen_maud_land"]'s comment
+    "ross_sea": ["B22A", "B22H"],  # B22F excluded, see REGIONS["ross_sea"]'s comment
+}
+
+# Active region for this process: set the REGION env var to switch (e.g.
+# `REGION=prydz_bay python -m src.integration.pipeline`). Defaults to the
+# original region so nothing changes for anyone not using this yet.
+ACTIVE_REGION = os.environ.get("REGION", "weddell")
+if ACTIVE_REGION not in REGIONS:
+    raise ValueError(f"Unknown REGION '{ACTIVE_REGION}' -- choose one of {list(REGIONS)}")
+
+# Import these two everywhere, exactly as before the region registry
+# existed -- they now resolve to whichever region is active for this
+# process instead of always being the Weddell Sea.
+GRID = REGIONS[ACTIVE_REGION]
+DEMO_ICEBERG_IDS = REGION_ICEBERG_IDS[ACTIVE_REGION]
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def region_path(top: str, *parts, region: str = None) -> Path:
+    """Region-scoped path under a given top-level dir, e.g.
+    `region_path("data/processed", "seaice_history.nc")` ->
+    `data/processed/<region>/seaice_history.nc`, or
+    `region_path("outputs", "manifest.json")` ->
+    `outputs/<region>/manifest.json`. Use this for any new per-region file
+    instead of a hardcoded path, so two regions' data/checkpoints/outputs
+    never collide. Pass `region=` to build a path for a region other than
+    the currently-active one (e.g. a script that compares two regions'
+    results). Iceberg positions/tracks and raw AMSR2 sea-ice tiles are
+    intentionally NOT region-scoped -- those sources are circumpolar and
+    genuinely shared across every region, only the *processed/regridded*
+    output, trained checkpoints, and demo outputs differ."""
+    region = region or ACTIVE_REGION
+    base = _REPO_ROOT / Path(top) / region
+    return base / Path(*parts) if parts else base
 
 
 def lat_lon_bounds():
@@ -112,6 +207,7 @@ def lat_lon_mesh():
 
 
 if __name__ == "__main__":
+    print(f"Active region: {ACTIVE_REGION}")
     print(GRID)
     print("Bounding box (west, south, east, north):", lat_lon_bounds())
     print("Approx grid shape (n_lon, n_lat):", n_grid_cells())

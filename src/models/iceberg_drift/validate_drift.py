@@ -30,15 +30,19 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from src.utils.grid import GRID, latlon_to_index
+from src.utils.grid import GRID, DEMO_ICEBERG_IDS, latlon_to_index, region_path
 from src.models.iceberg_drift.wagner_model import (
     IcebergState, step, haversine_km,
 )
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+# Shared/circumpolar -- the full BYU/NIC database covers every region, not
+# just the currently-active one.
 BYU_DIR = DATA_DIR / "raw" / "icebergs" / "byu_consolidated_v8" / "updated7_consol"
-FORCING_PATH = DATA_DIR / "processed" / "seaice_history_with_weather.nc"
-OUT_PATH = DATA_DIR / "processed" / "drift_validation.json"
+# Region-scoped: the forcing grid and validation output are specific to
+# the active region's GRID and tracked iceberg cluster.
+FORCING_PATH = region_path("data/processed", "seaice_history_with_weather.nc")
+OUT_PATH = region_path("data/processed", "drift_validation.json")
 
 DT_SECONDS = 24 * 3600
 NM_TO_M = 1852.0
@@ -177,10 +181,7 @@ def validate_iceberg(iceberg_id: str, csv_name: str, ds: xr.Dataset, max_horizon
     }
 
 
-ICEBERGS_TO_TRY = [
-    ("D32", "d32.csv"), ("D33A", "d33a.csv"), ("D33B", "d33b.csv"),
-    ("D33C", "d33c.csv"), ("D35", "d35.csv"),
-]
+ICEBERGS_TO_TRY = [(iceberg_id, f"{iceberg_id.lower()}.csv") for iceberg_id in DEMO_ICEBERG_IDS]
 
 
 def main(max_horizon_days: int = 20):

@@ -11,8 +11,10 @@ from pathlib import Path
 
 import pytest
 
+from src.utils.grid import region_path
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
-VALIDATION_PATH = REPO_ROOT / "data" / "processed" / "drift_validation.json"
+VALIDATION_PATH = region_path("data/processed", "drift_validation.json")
 
 
 @pytest.mark.skipif(not VALIDATION_PATH.exists(), reason="drift validation not run on this machine yet")

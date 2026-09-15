@@ -33,6 +33,7 @@ from torch.utils.data import DataLoader
 from .convlstm import SeaIceConvLSTM
 from .train import SeaIceSequenceDataset, train, chronological_splits
 from .baseline import evaluate, persistence_forecast, climatology_forecast
+from src.utils.grid import region_path
 
 N_ENSEMBLE_MEMBERS = 3
 SWEEP_EPOCHS = 6
@@ -166,14 +167,14 @@ def train_final_ensemble(processed_path, extra_vars, best_cfg, batch_size, save_
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--processed-path", default="data/processed/seaice_history.nc")
+    parser.add_argument("--processed-path", default=str(region_path("data/processed", "seaice_history.nc")))
     parser.add_argument("--extra-vars", default="")
     parser.add_argument("--input-seq-lens", default="5,7,10")
     parser.add_argument("--hidden-dims", default="16,32,64")
     parser.add_argument("--num-layers-list", default="1,2")
     parser.add_argument("--batch-size", type=int, default=4)
-    parser.add_argument("--save-checkpoint", default="data/processed/convlstm_checkpoint.pt")
-    parser.add_argument("--sweep-results-out", default="data/processed/convlstm_sweep_results.json")
+    parser.add_argument("--save-checkpoint", default=str(region_path("data/processed", "convlstm_checkpoint.pt")))
+    parser.add_argument("--sweep-results-out", default=str(region_path("data/processed", "convlstm_sweep_results.json")))
     parser.add_argument("--n-ensemble-members", type=int, default=None)
     parser.add_argument("--sweep-epochs", type=int, default=None)
     parser.add_argument("--final-epochs", type=int, default=None)

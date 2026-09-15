@@ -10,10 +10,12 @@ from pathlib import Path
 
 import pytest
 
+from src.utils.grid import region_path
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_FILES = [
     REPO_ROOT / "data" / "raw" / "icebergs" / "antarctic_icebergs_latest.csv",
-    REPO_ROOT / "data" / "raw" / "bathymetry" / "weddell_bathymetry.tif",
+    region_path("data/raw", "bathymetry", "bathymetry.tif"),
 ]
 
 pytestmark = pytest.mark.skipif(

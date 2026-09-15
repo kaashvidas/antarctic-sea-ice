@@ -22,6 +22,7 @@ import xarray as xr
 sys.path.append(str(Path(__file__).resolve().parents[3]))
 from src.models.seaice_forecast.convlstm import SeaIceConvLSTM  # noqa: E402
 from src.models.seaice_forecast.train import chronological_splits  # noqa: E402
+from src.utils.grid import region_path  # noqa: E402
 
 
 def evaluate_multiday(processed_path: str, checkpoint_path: str, horizon_days: int = 7,
@@ -79,7 +80,7 @@ def evaluate_multiday(processed_path: str, checkpoint_path: str, horizon_days: i
 
 
 def save_skill_json(errors_by_lead: dict, checkpoint_path: str,
-                     out_path: str = "data/processed/convlstm_multiday_skill.json") -> Path:
+                     out_path: str = None) -> Path:
     """Persists real per-lead-day MAE so the running app can disclose
     honest, measured confidence per forecast day instead of a single
     blanket 1-day-ahead number -- see src/integration/pipeline.py's
@@ -94,7 +95,7 @@ def save_skill_json(errors_by_lead: dict, checkpoint_path: str,
                 "with lead day since each day's prediction feeds into the next -- day 7 is a "
                 "real, measured, weaker number, not a placeholder.",
     }
-    out_path = Path(out_path)
+    out_path = Path(out_path) if out_path else region_path("data/processed", "convlstm_multiday_skill.json")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, indent=2))
     print(f"Saved {out_path}")
@@ -104,8 +105,8 @@ def save_skill_json(errors_by_lead: dict, checkpoint_path: str,
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--processed-path", default="data/processed/seaice_history_with_weather.nc")
-    parser.add_argument("--checkpoint", default="data/processed/convlstm_checkpoint.pt")
+    parser.add_argument("--processed-path", default=str(region_path("data/processed", "seaice_history_with_weather.nc")))
+    parser.add_argument("--checkpoint", default=str(region_path("data/processed", "convlstm_checkpoint.pt")))
     parser.add_argument("--horizon-days", type=int, default=7)
     parser.add_argument("--max-start-points", type=int, default=60)
     args = parser.parse_args()

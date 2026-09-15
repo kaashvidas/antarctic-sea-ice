@@ -32,9 +32,10 @@ import xarray as xr
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.data.preprocess import interpolate_weather_samples_historical  # noqa: E402
+from src.utils.grid import region_path  # noqa: E402
 
-PROCESSED_DIR = Path(__file__).resolve().parents[2] / "data" / "processed"
-WEATHER_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "weather"
+PROCESSED_DIR = region_path("data/processed")
+WEATHER_DIR = region_path("data/raw", "weather")
 MAX_GAP_DAYS_TO_INTERPOLATE = 5
 
 

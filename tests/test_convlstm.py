@@ -13,9 +13,10 @@ import pytest
 import torch
 
 from src.models.seaice_forecast.convlstm import SeaIceConvLSTM
+from src.utils.grid import region_path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CHECKPOINT = REPO_ROOT / "data" / "processed" / "convlstm_checkpoint.pt"
+CHECKPOINT = region_path("data/processed", "convlstm_checkpoint.pt")
 
 
 def test_convlstm_forward_pass_shape():

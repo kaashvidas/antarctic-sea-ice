@@ -42,19 +42,23 @@ import pandas as pd
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.utils.grid import (  # noqa: E402
-    GRID, DEMO_ICEBERG_IDS, lat_lon_mesh, latlon_to_index, index_to_latlon, n_grid_cells,
+    GRID, DEMO_ICEBERG_IDS, lat_lon_mesh, latlon_to_index, index_to_latlon, n_grid_cells, region_path,
 )
 from src.data.preprocess import regrid_bathymetry, regrid_seaice_bremen, interpolate_weather_samples  # noqa: E402
 from src.models.iceberg_drift.wagner_model import IcebergState, step  # noqa: E402
 from src.models.routing.isochrone import build_cost_grid, astar_route, naive_route  # noqa: E402
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
-OUTPUT_DIR = Path(__file__).resolve().parents[2] / "outputs"
+# Circumpolar/shared sources -- same for every region, not region-scoped.
 ICEBERG_CSV = DATA_DIR / "raw" / "icebergs" / "antarctic_icebergs_latest.csv"
-BATHY_TIF = DATA_DIR / "raw" / "bathymetry" / "weddell_bathymetry.tif"
 SEAICE_BREMEN_DIR = DATA_DIR / "raw" / "seaice_bremen"
-WEATHER_DIR = DATA_DIR / "raw" / "weather"
-CONVLSTM_CHECKPOINT = DATA_DIR / "processed" / "convlstm_checkpoint.pt"
+# Region-scoped: cropped/regridded to the active region's GRID, or a
+# per-region demo-output/checkpoint, so two regions' files must not
+# collide. See src/utils/grid.py's region_path().
+OUTPUT_DIR = region_path("outputs")
+BATHY_TIF = region_path("data/raw", "bathymetry", "bathymetry.tif")
+WEATHER_DIR = region_path("data/raw", "weather")
+CONVLSTM_CHECKPOINT = region_path("data/processed", "convlstm_checkpoint.pt")
 
 NM_TO_M = 1852.0
 N_ENSEMBLE = 8               # perturbed drift members per iceberg, for the uncertainty cone
@@ -193,7 +197,7 @@ def _run_convlstm_forecast(horizon_days: int):
     kernel_size = checkpoint.get("kernel_size", 3)
 
     history_name = "seaice_history_with_weather.nc" if extra_vars else "seaice_history.nc"
-    history_path = DATA_DIR / "processed" / history_name
+    history_path = region_path("data/processed", history_name)
     if not history_path.exists():
         raise FileNotFoundError(
             f"{history_path} not found — run src/data/build_seaice_history.py "
@@ -292,7 +296,7 @@ def get_seaice_concentration(horizon_days: int = None):
             # genuinely compounds across the autoregressive rollout, so a
             # single number would overstate day-7 confidence; this lets
             # every forecast day disclose its own real, measured accuracy.
-            multiday_skill_path = DATA_DIR / "processed" / "convlstm_multiday_skill.json"
+            multiday_skill_path = region_path("data/processed", "convlstm_multiday_skill.json")
             mae_by_lead_day = None
             if multiday_skill_path.exists():
                 import json
@@ -644,7 +648,9 @@ def write_manifest(forecast_date: str, iceberg_cluster, seaice_image_paths=None,
     the frontend can show an accurate disclosure instead of a blanket
     guess."""
     source_info = source_info or {}
+    from src.utils.grid import ACTIVE_REGION
     manifest = {
+        "region": ACTIVE_REGION,
         "forecast_date": forecast_date,
         "forecast_horizon_days": GRID.forecast_horizon_days,
         "bounds": {"lon_min": GRID.lon_min, "lon_max": GRID.lon_max,

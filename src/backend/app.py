@@ -21,8 +21,13 @@ from pydantic import BaseModel
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.integration.journey_report import plan_journey, ICE_CLASS_PROFILES  # noqa: E402
+from src.utils.grid import ACTIVE_REGION, region_path  # noqa: E402
 
-OUTPUT_DIR = Path(__file__).resolve().parents[2] / "outputs"
+# Region-scoped: this process serves exactly one region (set via the
+# REGION env var, see src/utils/grid.py) -- a different region's outputs/
+# live in their own subdirectory, not mixed with this one's.
+OUTPUT_DIR = region_path("outputs")
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)  # StaticFiles below requires the dir to exist
 
 app = FastAPI(title="Antarctic Navigation Platform API")
 
