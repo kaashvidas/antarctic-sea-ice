@@ -74,8 +74,12 @@ Ranked by how much they actually matter for the pitch:
 
 ## 4. What's supposed to be fixed right now
 
-- **Finish the current 14yr Weddell Sea retrain** (in progress) — don't start new training work on top of it; let it converge (early stopping will handle this) and confirm it beats the previous 5yr checkpoint before promoting.
-- **The region-scoping refactor (flaw #5 above)** — this is the actual blocker for parallelizing regional expansion across multiple people. Needs to happen *before* anyone starts an independent regional pipeline run, or their commits will silently clobber each other's files. Concretely: a `REGIONS` registry (named `GRID` configs + iceberg ID lists), every `data/processed/*` and `data/raw/*` path prefixed by region name, and the FastAPI backend accepting a `region` parameter. Estimated 2-3 hours of focused work, one person, one sitting — don't split this part across people, it needs to land as one coherent change.
+- ~~Finish the current 14yr Weddell Sea retrain~~ **Done.** Real result, worth knowing: the orchestrator's first comparison said 14yr data *didn't* beat the old 5yr checkpoint — that comparison was invalid (the two were evaluated on different chronological windows). A controlled re-evaluation on an identical fixed window showed a genuine ~9.7% improvement, and that's what's live now. Full writeup in section 1's "Live status."
+- ~~The region-scoping refactor~~ **Done** (2026-09-15). `src/utils/grid.py` now has a `REGIONS` registry; every per-region file goes through a new `region_path()` helper (`data/{raw,processed}/<region>/...`, `outputs/<region>/...`). Existing Weddell data was migrated into `data/processed/weddell/`, `data/raw/weddell/{bathymetry,weather}/`, `outputs/weddell/`. Verified: full test suite passes, live API confirmed working, and switching `REGION=prydz_bay` resolves a completely separate config with zero collision against Weddell's files.
+
+  **How to actually use this for regional work:** set the `REGION` env var to one of `weddell` (default), `prydz_bay`, `queen_maud_land`, or `ross_sea` before running any script, e.g. `REGION=prydz_bay python -m src.data.download_bathymetry` or (Windows) `set REGION=prydz_bay && python -m src.data.download_bathymetry`. Every download/build/train/evaluate script and the backend (`REGION=prydz_bay uvicorn src.backend.app:app --port 8001`) picks it up automatically — nothing else to configure. **Before starting real work on `prydz_bay` or `ross_sea`,** re-verify the `REGION_ICEBERG_IDS` list in `grid.py` against a fresh live USNIC pull (positions/tracked-set membership drift over months, same caveat the original Weddell cluster docstring already carried). **`queen_maud_land`'s iceberg list is explicitly provisional** — only one real nearby berg (D37) was found as of 2026-09-15, re-check before relying on it.
+
+  Known real limitation carried over from this refactor, not fixed: the grid is a simple non-wrapping lon/lat box, so a region crossing the antimeridian (180°/-180°) isn't representable — `ross_sea`'s bounds were chosen to avoid this rather than fix the underlying grid math. Fine for now; would need real work if a future region genuinely requires straddling the dateline.
 
 ## 5. What can be stalled for later
 
@@ -100,12 +104,18 @@ Weddell Sea (current domain) stays as the baseline/most-mature region regardless
 
 ## 7. How this can be done in parallel
 
-**Do not start parallel regional work until the region-scoping refactor (section 4) has landed and been merged.** Once it has, the split is clean:
+**The region-scoping refactor (section 4) has landed — parallel regional work can start now.** The split is clean:
 
-1. One person/branch per region (e.g. `region/prydz-bay`, `region/queen-maud-land`, `region/ross-sea`).
-2. Each person runs, for their region only: bathymetry download (seconds) → sea-ice re-crop+rebuild from the *already-downloaded* circumpolar AMSR2 archive if working from a machine that already has it, or a fresh download if not (~20-40 min either way) → weather historical download (~30-60 min) → iceberg cluster selection + real-data sanity check (~15-30 min, follow the pattern in this session: check the live USNIC CSV and the BYU database for real bergs near the target coordinates before locking in a `DEMO_ICEBERG_IDS` list) → ConvLSTM training with `--patience 3` (the dominant cost, see timing note below) → `evaluate_multiday.py` → `validate_drift.py`.
-3. Commit only region-scoped files (thanks to the refactor, these won't collide with anyone else's).
-4. Merge each region branch once its own test suite subset passes.
+1. Pull latest `main` (which has the region refactor). One person/branch per region (e.g. `region/prydz-bay`, `region/queen-maud-land`, `region/ross-sea`), or just work directly with `REGION=<name>` set if branches feel like overkill for this.
+2. Each person runs, for their region only (`REGION=<name>` before every command — see section 4's usage note):
+   a. **Re-verify the iceberg cluster first** — `python -m src.data.download_icebergs` (shared/global, already works for any region) then check the live CSV for real bergs near your region's coordinates, cross-check against `data/raw/icebergs/byu_consolidated_v8/updated7_consol/` for historical track depth, and update `REGION_ICEBERG_IDS` in `grid.py` if the provisional list needs correcting. ~15-30 min.
+   b. `python -m src.data.download_bathymetry` — seconds.
+   c. Sea-ice: re-crop+rebuild from the *already-downloaded* circumpolar AMSR2 archive if your machine already has `data/raw/seaice_bremen/` populated (`python -m src.data.build_seaice_history`, ~10-20 min, no network needed), or a fresh download first if not (`python -m src.data.download_seaice_bremen --start ... --end ...`, longer, network-bound).
+   d. `python -m src.data.download_weather --start ... --end ...` — ~30-60 min.
+   e. `python -m src.models.seaice_forecast.train --patience 3` — the dominant cost, see the timing notes in section 1 and 8. **Use `--patience`, always** — the whole reason it exists is tonight's near-miss.
+   f. `python -m src.models.seaice_forecast.evaluate_multiday` then `python -m src.models.iceberg_drift.validate_drift`.
+3. Commit only region-scoped files (thanks to the refactor, these won't collide with anyone else's) plus any `grid.py` correction from step 2a.
+4. Merge each region branch once its own test suite subset passes (`REGION=<name> pytest tests/ -q`).
 
 ---
 
