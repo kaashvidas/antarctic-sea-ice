@@ -1,11 +1,14 @@
 import { Fragment } from 'react'
-import { CircleMarker, Polyline, Popup, Tooltip } from 'react-leaflet'
+import { Circle, CircleMarker, Polyline, Popup, Tooltip } from 'react-leaflet'
 import { colorForIceberg } from '../icebergColors'
 
 /**
  * Renders each iceberg from a plan_journey response's `icebergs` array:
- * current position marker, full predicted_track as a line, and a visually
- * distinct treatment (red ring + pulsing tooltip) for any iceberg flagged
+ * current position marker, full predicted_track as a line, a real
+ * per-day drift-uncertainty cone (see journey_report.py's
+ * cone_radius_by_day — computed from the actual 8-member perturbed
+ * drift ensemble, not a synthetic guess), and a visually distinct
+ * treatment (red ring + pulsing tooltip) for any iceberg flagged
  * warning: true — those are the closest-approach safety cases.
  */
 export default function IcebergLayer({ icebergs }) {
@@ -19,6 +22,17 @@ export default function IcebergLayer({ icebergs }) {
         const track = (berg.predicted_track || []).map((p) => [p.lat, p.lon])
         return (
           <Fragment key={berg.iceberg_id}>
+            {/* Drift uncertainty cone: one real ensemble-derived radius per
+                day, largest/faintest (furthest out, least certain) drawn
+                first so later, tighter/more-certain days layer on top. */}
+            {[...(berg.predicted_track || [])].reverse().map((p) => p.cone_radius_km > 0 && (
+              <Circle
+                key={`${berg.iceberg_id}-cone-${p.day}`}
+                center={[p.lat, p.lon]}
+                radius={p.cone_radius_km * 1000}
+                pathOptions={{ color, weight: 0, fillColor: color, fillOpacity: 0.07 }}
+              />
+            ))}
             {track.length > 1 && (
               <Polyline positions={track} pathOptions={{ color, weight: 2, opacity: 0.8, dashArray: berg.warning ? undefined : '2,4' }}>
                 <Tooltip sticky>{berg.iceberg_id} — predicted track</Tooltip>

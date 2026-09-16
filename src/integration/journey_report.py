@@ -241,17 +241,34 @@ def _iceberg_report(iceberg_cluster: list, tracks: dict, optimized_latlon: list,
                 if d < best_km:
                     best_km, best_day = d, day
 
-        final_positions = [track[-1] for track in member_tracks]
-        cone_center = center_track[-1]
-        uncertainty_radius_km = max(
-            (haversine_km(*cone_center, lat, lon) for lat, lon in final_positions), default=0.0
-        )
+        # Real per-day uncertainty cone: the ensemble's 8 perturbed
+        # members (real independent free-drift runs with randomized
+        # wind/current scaling, see run_drift_ensemble()) already carry a
+        # full per-day track each -- this was previously only used to
+        # compute ONE number (day-7 radius). Computing it for every day
+        # instead costs nothing new (same data, already in memory) and
+        # lets the frontend draw a real growing uncertainty cone instead
+        # of a single deterministic line, per this project's own
+        # uncertainty-first rule (README's "Mental Model" section).
+        n_days = len(center_track)
+        cone_radius_by_day = []
+        for day in range(n_days):
+            day_center = center_track[day]
+            day_positions = [track[day] for track in member_tracks if day < len(track)]
+            radius = max(
+                (haversine_km(*day_center, lat, lon) for lat, lon in day_positions), default=0.0
+            )
+            cone_radius_by_day.append(round(radius, 1))
+        uncertainty_radius_km = cone_radius_by_day[-1] if cone_radius_by_day else 0.0
 
         report.append({
             "iceberg_id": iceberg_id,
             "current_position": {"lat": state.lat, "lon": state.lon},
             "length_m": state.length_m, "width_m": state.width_m,
-            "predicted_track": [{"day": d, "lat": lat, "lon": lon} for d, (lat, lon) in enumerate(center_track)],
+            "predicted_track": [
+                {"day": d, "lat": lat, "lon": lon, "cone_radius_km": cone_radius_by_day[d]}
+                for d, (lat, lon) in enumerate(center_track)
+            ],
             "drift_uncertainty_radius_km_day7": round(uncertainty_radius_km, 1),
             "closest_approach_km": None if best_day is None else round(best_km, 1),
             "closest_approach_day": best_day,

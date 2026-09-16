@@ -24,6 +24,10 @@ export default function Legend() {
           <span>Predicted drift track</span>
         </div>
         <div className="legend-row">
+          <span className="legend-swatch dot" style={{ background: 'var(--accent-blue)', opacity: 0.25, border: 'none', width: 14, height: 14 }} />
+          <span>Drift uncertainty (grows with lead day, from the real perturbed-ensemble spread)</span>
+        </div>
+        <div className="legend-row">
           <span className="legend-swatch dot warn" style={{ background: 'var(--accent-red)' }} />
           <span>Close-approach warning</span>
         </div>
