@@ -142,6 +142,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--sp-1);
+  min-width: 0;
 }
 .field-label {
   font-size: var(--fs-label);
@@ -151,6 +152,7 @@
 }
 .field input,
 .field select {
+  width: 100%;
   background: var(--bg-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -198,6 +200,7 @@
   color: var(--text-1);
   flex: 1 1 auto;
   min-width: 120px;
+  overflow-wrap: break-word;
 }
 .quick-location-note {
   color: var(--text-3);
@@ -250,6 +253,13 @@
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
+  /* .planner's left column is a fixed 380px grid track, but grid items
+     default to min-width:auto -- without this, wide content (long
+     station names, number inputs' intrinsic sizing) pushes this whole
+     column wider than 380px and bleeds into the map instead of
+     wrapping/shrinking to fit, per the well-known CSS Grid "min-width:
+     auto" overflow gotcha. */
+  min-width: 0;
 }
 
 .planner-map-pane {
