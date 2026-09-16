@@ -29,7 +29,7 @@ from src.utils.grid import ACTIVE_REGION, region_path  # noqa: E402
 OUTPUT_DIR = region_path("outputs")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)  # StaticFiles below requires the dir to exist
 
-app = FastAPI(title="Antarctic Navigation Platform API")
+app = FastAPI(title="Kryos — Antarctic Voyage Navigator API")
 
 # Vite's dev server runs on a different port than the API during
 # development. Vite falls back to 5174, 5175, ... if 5173 is already

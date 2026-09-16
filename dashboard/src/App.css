@@ -1,5 +1,5 @@
 /* ============================================================
-   Antarctic Voyage Planner — application layout & components
+   Kryos — Antarctic Voyage Navigator — application layout & components
    Built on the tokens in index.css. Two views (Journey Planner,
    Voyage Report) share this one stylesheet so they read as one
    product.
@@ -72,6 +72,13 @@
 .app-mark {
   color: var(--accent-cyan);
   font-size: 15px;
+}
+
+.app-topbar-subtitle {
+  font-weight: 400;
+  letter-spacing: 0.3px;
+  color: var(--text-2);
+  font-size: 0.7em;
 }
 
 .app-topbar-meta {

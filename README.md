@@ -1,4 +1,6 @@
-# Antarctic Sea-Ice, Iceberg Trajectory & Navigation Decision Support Platform
+# Kryos — Antarctic Voyage Navigator
+
+*Antarctic Sea-Ice, Iceberg Trajectory & Navigation Decision Support Platform*
 
 **SIH26059** · Ministry of Earth Sciences · Smart India Hackathon 2026
 

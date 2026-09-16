@@ -1,4 +1,4 @@
-# Project Status & Handoff — Antarctic Sea-Ice / Iceberg / Navigation Platform
+# Project Status & Handoff — Kryos (Antarctic Voyage Navigator)
 
 SIH26059, Ministry of Earth Sciences. Deadline: **2026-09-30**. This document is for anyone (human or AI) picking up work on this repo — it covers what's real and working, what's actually broken or missing, what to fix now vs. later, and a concrete plan for splitting regional expansion across multiple people/machines. It does not replace `README.md` (the project pitch/architecture doc) — read that first for the "what is this and why" framing; this doc is the "what's the actual state and what do I do next" framing.
 

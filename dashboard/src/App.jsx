@@ -42,7 +42,7 @@ export default function App() {
       <header className="app-topbar">
         <div className="app-topbar-title">
           <span className="app-mark" aria-hidden="true">⬡</span>
-          ANTARCTIC VOYAGE PLANNER
+          KRYOS <span className="app-topbar-subtitle">— Antarctic Voyage Navigator</span>
         </div>
         <div className="app-topbar-meta">
           Forecast issued {manifest.forecast_date} · {manifest.forecast_horizon_days}-day horizon
