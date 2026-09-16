@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react'
-import './App.css'
+// Import order matters (CSS cascade) and matches these files' original
+// order inside the single App.css they were split from -- see
+// styles/shell.css's header for why.
+import './styles/shell.css'
+import './styles/controls.css'
+import './styles/report.css'
 import { fetchManifest, fetchIceClasses, setApiBase, getApiBase } from './api'
 import { REGION_INFO } from './regionPresets'
 import JourneyPlanner from './views/JourneyPlanner'

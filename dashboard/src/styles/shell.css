@@ -1,0 +1,139 @@
+/* ============================================================
+   Kryos — Antarctic Voyage Navigator — app shell
+   Built on the tokens in index.css. One of three files split from a
+   single App.css for navigability -- see App.jsx for import order,
+   which matches this file's original position (cascade order is
+   preserved exactly; splitting changed nothing about how any rule
+   resolves). The three views (Journey Planner, Voyage Report, and the
+   region switcher in the shell itself) share these files so the whole
+   app reads as one product, not three.
+
+   This file: the top-level app container, loading/error states, the
+   topbar, and the region switcher tabs.
+   Also see: styles/controls.css (shared buttons/tags/panels/form
+   fields used by more than one view), styles/report.css (everything
+   specific to the voyage report view: map, legend, timeline, panels).
+   ============================================================ */
+
+.app {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-0);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+}
+
+.app-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-0);
+  color: var(--text-1);
+  z-index: 2000;
+}
+
+.app-status.error {
+  color: var(--accent-red);
+  text-align: center;
+  padding: var(--sp-6);
+  line-height: 1.6;
+}
+
+.app-status code {
+  display: block;
+  margin-top: var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
+  color: var(--text-1);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+}
+
+/* ---------- top bar (shared identity across both views) ---------- */
+
+.app-topbar {
+  flex: 0 0 auto;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--sp-5);
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.app-topbar-title {
+  font-size: var(--fs-h1);
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: var(--text-0);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-family: var(--font-mono);
+}
+
+.app-mark {
+  color: var(--accent-cyan);
+  font-size: 15px;
+}
+
+.app-topbar-subtitle {
+  font-weight: 400;
+  letter-spacing: 0.3px;
+  color: var(--text-2);
+  font-size: 0.7em;
+}
+
+.app-topbar-meta {
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.app-topbar-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.region-switcher {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+.region-tab {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  padding: 3px var(--sp-3);
+  border-radius: calc(var(--radius-sm) - 2px);
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.region-tab:hover {
+  color: var(--text-0);
+}
+.region-tab--active {
+  background: var(--accent-cyan-dim);
+  color: var(--accent-cyan);
+}
+
+.app-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+

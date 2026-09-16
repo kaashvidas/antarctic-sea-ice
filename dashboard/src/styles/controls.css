@@ -1,0 +1,319 @@
+/* ============================================================
+   Kryos — Antarctic Voyage Navigator — shared controls
+   Second of three files split from a single App.css -- see
+   styles/shell.css's header for the split rationale/import order.
+
+   This file: generic building blocks (panels, buttons, tags, alerts)
+   and form fields -- used by the Journey Planner form and, in a few
+   cases, the Voyage Report view too, so these live here rather than
+   in styles/report.css.
+   ============================================================ */
+
+/* ---------- generic building blocks ---------- */
+
+.panel {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-4);
+}
+
+.panel-title {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-h2);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-2);
+}
+
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-3);
+}
+.panel-title-row .panel-title {
+  margin-bottom: 0;
+}
+
+.tag {
+  display: inline-block;
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 2px var(--sp-2);
+  border-radius: var(--radius-sm);
+  line-height: 1.6;
+}
+.tag--placeholder {
+  background: var(--accent-amber-dim);
+  color: var(--accent-amber);
+  border: 1px solid var(--accent-amber-dim);
+}
+.tag--real {
+  background: var(--accent-cyan-dim);
+  color: var(--accent-cyan);
+  border: 1px solid var(--accent-cyan-dim);
+}
+.tag--danger {
+  background: var(--accent-red-dim);
+  color: #ffd3ce;
+  border: 1px solid var(--accent-red);
+}
+
+.btn-primary,
+.btn-secondary {
+  font-family: var(--font-sans);
+  font-size: var(--fs-body-lg);
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  padding: var(--sp-3) var(--sp-5);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.12s, border-color 0.12s;
+}
+.btn-primary {
+  background: var(--accent-cyan);
+  color: #06201d;
+}
+.btn-primary:hover:not(:disabled) {
+  background: #47d2c7;
+}
+.btn-primary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.btn-spinner-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.btn-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(6, 32, 29, 0.35);
+  border-top-color: #06201d;
+  animation: btn-spin 0.7s linear infinite;
+}
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+.submitting-hint {
+  margin-top: var(--sp-2);
+  color: var(--text-2);
+}
+.btn-secondary {
+  background: transparent;
+  color: var(--text-1);
+  border-color: var(--border);
+}
+.btn-secondary:hover {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.alert-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  background: var(--bg-2);
+  border: 1px solid var(--accent-red);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  padding: var(--sp-3) var(--sp-4);
+  font-size: var(--fs-body);
+  color: #f0c9c5;
+  line-height: 1.5;
+}
+.alert-tag {
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent-red);
+}
+
+/* ---------- form fields ---------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.field-label {
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.field input,
+.field select {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2) var(--sp-3);
+  color: var(--text-0);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
+}
+.field input:focus,
+.field select:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+}
+.field-grid {
+  display: grid;
+  gap: var(--sp-3);
+}
+.field-grid.two-col {
+  grid-template-columns: 1fr 1fr;
+}
+.field-hint {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-label);
+  color: var(--text-3);
+}
+
+.quick-locations {
+  margin-bottom: var(--sp-3);
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+.quick-locations-label {
+  display: block;
+  margin-bottom: var(--sp-2);
+}
+.quick-location-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-1);
+  flex-wrap: wrap;
+}
+.quick-location-name {
+  font-size: var(--fs-label);
+  color: var(--text-1);
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+.quick-location-note {
+  color: var(--text-3);
+  font-size: var(--fs-micro);
+}
+
+.unavailable-regions-note {
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.unavailable-region-row {
+  margin: var(--sp-1) 0 0;
+}
+.unavailable-region-row strong {
+  color: var(--text-1);
+}
+.btn-chip {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  padding: 2px var(--sp-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-chip:hover {
+  border-color: var(--accent-cyan-dim);
+  color: var(--accent-cyan);
+}
+
+/* ============================================================
+   Journey Planner view
+   ============================================================ */
+
+.planner {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: var(--sp-5);
+  padding: var(--sp-5);
+  min-height: 100%;
+  align-items: start;
+}
+
+.planner-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.planner-map-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  height: calc(100vh - 44px - var(--sp-5) * 2);
+  min-height: 420px;
+  position: sticky;
+  top: 0;
+}
+
+.planner-map-label {
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+}
+
+.locator-map,
+.app-map {
+  flex: 1 1 auto;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-0);
+}
+
+.map-loading {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+}
+
+.locator-tooltip {
+  background: var(--bg-2) !important;
+  color: var(--text-0) !important;
+  border: 1px solid var(--border) !important;
+  font-family: var(--font-mono);
+  font-size: 10px !important;
+  font-weight: 700;
+  padding: 2px 6px !important;
+  box-shadow: none !important;
+}
+.locator-tooltip::before {
+  display: none;
+}
+
+/* Darken/desaturate plain OSM tiles so they read as a chart background
+   rather than a bright generic web map, and colored overlays pop. */
+.basemap-tiles {
+  filter: brightness(0.55) saturate(0.7) hue-rotate(180deg) invert(1) contrast(0.9);
+}
+
+/* ============================================================
+   Voyage Report view
+   ============================================================ */
+
+.report {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+}
+
