@@ -50,6 +50,15 @@ _REGION_TEST_FIXTURES = {
         "strong_ice_class": "polar_class_pc3_or_higher",
         "weak_ice_class": "polar_class_pc5",  # not_ice_strengthened is infeasible for this pair entirely
     },
+    "ross_sea": {
+        "start": {"lat": -77.375, "lon": 166.125},  # near McMurdo -- real reduced-concentration polynya area
+        "goal": {"lat": -67.875, "lon": 175.125},
+        "feasible_ice_class": "polar_class_pc5",  # real Sept pack here (58% mean) too dense for ice_strengthened's 50% cutoff
+        "deep_pack_point": {"lat": -65.875, "lon": 155.125},  # confirmed ~99% concentration
+        "unsafe_ice_class": "not_ice_strengthened",
+        "strong_ice_class": "polar_class_pc3_or_higher",
+        "weak_ice_class": "polar_class_pc5",  # not_ice_strengthened is infeasible for this pair entirely
+    },
 }
 _FIXTURE = _REGION_TEST_FIXTURES.get(ACTIVE_REGION)
 pytestmark = [
