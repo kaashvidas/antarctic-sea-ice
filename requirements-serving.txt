@@ -1,0 +1,24 @@
+# Minimal dependency set for the deployed FastAPI backend (src/backend/app.py).
+# This is NOT requirements.txt -- that file also covers data acquisition
+# (earthaccess/cdsapi/copernicusmarine), offline training (dask, bottleneck,
+# matplotlib/pillow for overlay PNGs, jupyter), none of which the live
+# request path (/api/manifest, /api/ice_classes, /api/routes,
+# POST /api/plan_journey) actually imports -- confirmed matplotlib/PIL
+# are local imports inside write_seaice_images(), which only
+# run_pipeline() (the offline precompute step, already run) calls.
+# Keeping this list short matters for deploy image size/build time.
+
+xarray>=2024.3
+netCDF4>=1.6
+numpy>=1.26
+pandas>=2.2
+scipy>=1.13
+rasterio>=1.3
+
+torch>=2.2
+
+networkx>=3.3
+
+fastapi>=0.110
+uvicorn>=0.29
+pydantic>=2.6

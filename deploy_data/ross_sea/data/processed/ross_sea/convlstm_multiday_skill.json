@@ -1,0 +1,15 @@
+{
+  "checkpoint_evaluated": "C:\\Users\\sande\\antarctic-sea-ice\\data\\processed\\ross_sea\\convlstm_checkpoint.pt",
+  "generated_at": "2026-09-16T20:13:06.972468",
+  "mae_by_lead_day": {
+    "1": 0.0302,
+    "2": 0.0407,
+    "3": 0.0483,
+    "4": 0.0547,
+    "5": 0.0618,
+    "6": 0.0682,
+    "7": 0.073
+  },
+  "n_start_points": 60,
+  "note": "Real autoregressive MAE per forecast lead day, measured on the held-out test split (never used for training or hyperparameter selection). Error compounds with lead day since each day's prediction feeds into the next -- day 7 is a real, measured, weaker number, not a placeholder."
+}

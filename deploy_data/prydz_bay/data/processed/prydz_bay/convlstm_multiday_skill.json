@@ -1,0 +1,15 @@
+{
+  "checkpoint_evaluated": "data/processed/prydz_bay/convlstm_checkpoint.pt",
+  "generated_at": "2026-09-16T02:16:49.563855",
+  "mae_by_lead_day": {
+    "1": 0.0326,
+    "2": 0.0423,
+    "3": 0.0504,
+    "4": 0.056,
+    "5": 0.0611,
+    "6": 0.0659,
+    "7": 0.0687
+  },
+  "n_start_points": 60,
+  "note": "Real autoregressive MAE per forecast lead day, measured on the held-out test split (never used for training or hyperparameter selection). Error compounds with lead day since each day's prediction feeds into the next -- day 7 is a real, measured, weaker number, not a placeholder."
+}

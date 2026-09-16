@@ -16,10 +16,22 @@
 // was cross-checked against), but every entry here is real and verified,
 // and the known clusters (Larsemann Hills, McMurdo Sound, South Orkney
 // Islands / Antarctic Peninsula) are all represented.
+// Backend URL per region: defaults to localhost for local dev (one
+// uvicorn instance per region, see PROJECT_STATUS.md section 4), but a
+// deployed frontend needs real deployed backend URLs instead -- set
+// VITE_WEDDELL_API_URL / VITE_PRYDZ_BAY_API_URL / VITE_ROSS_SEA_API_URL
+// as build-time env vars (Vercel/Netlify project settings, or a local
+// .env file) to override. Vite only exposes env vars prefixed VITE_ and
+// only inlines them at BUILD time, not runtime -- changing one requires
+// a rebuild/redeploy of the frontend, not just a restart.
+function apiUrlFor(envVar, localPort) {
+  return import.meta.env[envVar] || `http://localhost:${localPort}`
+}
+
 export const REGION_INFO = {
   weddell: {
     displayName: 'Weddell Sea',
-    apiPort: 8001,
+    apiUrl: apiUrlFor('VITE_WEDDELL_API_URL', 8001),
     locations: [
       { label: 'Orcadas Station (Argentina)', lat: -60.625, lon: -44.625, note: '~14 km from the real station' },
       { label: 'Signy Research Station (UK)', lat: -60.875, lon: -45.875, note: '~24 km from the real station' },
@@ -31,7 +43,7 @@ export const REGION_INFO = {
   },
   prydz_bay: {
     displayName: 'Prydz Bay',
-    apiPort: 8002,
+    apiUrl: apiUrlFor('VITE_PRYDZ_BAY_API_URL', 8002),
     locations: [
       { label: 'Bharati Station (India)', lat: -69.375, lon: 76.125, note: '~5 km from the real station' },
       { label: 'Progress Station (Russia)', lat: -69.375, lon: 76.375, note: '~1 km from the real station' },
@@ -44,7 +56,7 @@ export const REGION_INFO = {
   },
   ross_sea: {
     displayName: 'Ross Sea',
-    apiPort: 8003,
+    apiUrl: apiUrlFor('VITE_ROSS_SEA_API_URL', 8003),
     locations: [
       { label: 'McMurdo Station (USA)', lat: -77.375, lon: 166.125, note: '~55 km from the real station' },
       { label: 'Scott Base (New Zealand)', lat: -77.875, lon: 166.875, note: '~4 km from the real station' },
@@ -57,7 +69,7 @@ export const REGION_INFO = {
 
 export const DEFAULT_REGION_INFO = {
   displayName: 'this domain',
-  apiPort: 8001,
+  apiUrl: 'http://localhost:8001',
   locations: [],
 }
 

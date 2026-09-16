@@ -38,7 +38,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    setApiBase(`http://localhost:${REGION_INFO[selectedRegion].apiPort}`)
+    setApiBase(REGION_INFO[selectedRegion].apiUrl)
     setManifest(null)
     setIceClasses(null)
     setLoadError(null)
@@ -61,8 +61,8 @@ export default function App() {
         <div>
           Failed to load data from the backend API at <strong>{getApiBase()}</strong>.
           <br />
-          Make sure it&rsquo;s running for this region:
-          <code>REGION={selectedRegion} venv/Scripts/python.exe -m uvicorn src.backend.app:app --port {REGION_INFO[selectedRegion].apiPort}</code>
+          Make sure it&rsquo;s running for this region, or that{' '}
+          <code>VITE_{selectedRegion.toUpperCase()}_API_URL</code> points at the right deployed backend:
           <code>{loadError}</code>
         </div>
       </div>

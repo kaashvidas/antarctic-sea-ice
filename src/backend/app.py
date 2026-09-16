@@ -10,6 +10,8 @@ Run: uvicorn src.backend.app:app --reload --port 8001
 (port 8000 is avoided on this dev machine -- see dashboard/README.md)
 """
 
+import os
+import re
 import sys
 from pathlib import Path
 
@@ -37,9 +39,22 @@ app = FastAPI(title="Kryos — Antarctic Voyage Navigator API")
 # sessions), so pin the HOST but allow any localhost/127.0.0.1 port via
 # regex rather than a single hardcoded origin string that breaks the
 # moment Vite picks a different port.
+#
+# FRONTEND_ORIGIN (comma-separated, exact origins e.g.
+# "https://kryos.vercel.app,https://kryos-git-main-you.vercel.app"):
+# a deployed frontend is NOT on localhost, so without this the deployed
+# dashboard's every API call would be silently blocked by the browser's
+# CORS check -- the request never even reaches this app's route
+# handlers, so this is easy to miss in server logs. Unset in local dev,
+# where the plain localhost regex below is already enough.
+_origin_pattern = r"http://(localhost|127\.0\.0\.1):\d+"
+_extra_origins = [o.strip() for o in os.environ.get("FRONTEND_ORIGIN", "").split(",") if o.strip()]
+if _extra_origins:
+    _origin_pattern = "|".join([_origin_pattern] + [re.escape(o) for o in _extra_origins])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
+    allow_origin_regex=_origin_pattern,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
