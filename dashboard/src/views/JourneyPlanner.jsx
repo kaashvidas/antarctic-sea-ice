@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import LocatorMap from '../components/LocatorMap'
 import { planJourney } from '../api'
-import { regionInfoFor } from '../regionPresets'
+import { regionInfoFor, UNAVAILABLE_REGIONS } from '../regionPresets'
 
 const DEFAULT_SPEED = 18
 
@@ -36,6 +36,15 @@ export default function JourneyPlanner({ manifest, iceClasses, onPlanned }) {
 
   const start = { lat: toNum(startLat), lon: toNum(startLon) }
   const goal = { lat: toNum(goalLat), lon: toNum(goalLon) }
+
+  function setLocationAsStart(lat, lon) {
+    setStartLat(String(lat))
+    setStartLon(String(lon))
+  }
+  function setLocationAsGoal(lat, lon) {
+    setGoalLat(String(lat))
+    setGoalLon(String(lon))
+  }
 
   function handleMapPick({ lat, lon }) {
     const startSet = start.lat !== null && start.lon !== null
@@ -101,14 +110,17 @@ export default function JourneyPlanner({ manifest, iceClasses, onPlanned }) {
           <h2 className="panel-title">Route — {regionInfo.displayName}</h2>
           {regionInfo.locations.length > 0 && (
             <div className="quick-locations">
-              <span className="field-hint quick-locations-label">Known locations (verified real coordinates):</span>
+              <span className="field-hint quick-locations-label">Known locations (verified real coordinates) — or click a marker on the map:</span>
               {regionInfo.locations.map((loc) => (
                 <div className="quick-location-row" key={loc.label}>
-                  <span className="quick-location-name">{loc.label}</span>
-                  <button type="button" className="btn-chip" onClick={() => { setStartLat(String(loc.lat)); setStartLon(String(loc.lon)) }}>
+                  <span className="quick-location-name">
+                    {loc.label}
+                    {loc.note && <span className="quick-location-note"> — {loc.note}</span>}
+                  </span>
+                  <button type="button" className="btn-chip" onClick={() => setLocationAsStart(loc.lat, loc.lon)}>
                     Set start
                   </button>
-                  <button type="button" className="btn-chip" onClick={() => { setGoalLat(String(loc.lat)); setGoalLon(String(loc.lon)) }}>
+                  <button type="button" className="btn-chip" onClick={() => setLocationAsGoal(loc.lat, loc.lon)}>
                     Set destination
                   </button>
                 </div>
@@ -190,11 +202,24 @@ export default function JourneyPlanner({ manifest, iceClasses, onPlanned }) {
       </form>
 
       <div className="planner-map-pane">
-        <div className="planner-map-label">{regionInfo.displayName} — click to set start / destination</div>
+        <div className="planner-map-label">{regionInfo.displayName} — click the map, or a station marker, to set start / destination</div>
         {bounds ? (
-          <LocatorMap bounds={bounds} start={start} goal={goal} onPick={handleMapPick} />
+          <LocatorMap
+            bounds={bounds} start={start} goal={goal} onPick={handleMapPick}
+            stations={regionInfo.locations} onSetStart={setLocationAsStart} onSetGoal={setLocationAsGoal}
+          />
         ) : (
           <div className="map-loading">Loading chart bounds…</div>
+        )}
+        {UNAVAILABLE_REGIONS.length > 0 && (
+          <div className="unavailable-regions-note">
+            <span className="field-hint">Not yet available in this platform:</span>
+            {UNAVAILABLE_REGIONS.map((r) => (
+              <p className="field-hint unavailable-region-row" key={r.label}>
+                <strong>{r.label}</strong> — {r.reason}
+              </p>
+            ))}
+          </div>
         )}
       </div>
     </div>
