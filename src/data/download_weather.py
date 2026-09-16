@@ -25,6 +25,7 @@ get backwards — verify before touching this):
 """
 
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -50,6 +51,28 @@ CURRENT_ARCHIVE_URL = "https://marine-api.open-meteo.com/v1/marine"  # same endp
 N_SAMPLE_LON, N_SAMPLE_LAT = 10, 7
 
 
+def _get_json_with_retry(url, params, timeout=30, attempts=4):
+    """A single bulk multi-point/multi-year request here can be tens of MB
+    -- a real transient network hiccup (seen in practice: a truncated
+    response mid-transfer, producing a JSONDecodeError from a 200-status
+    response with a corrupt body, not a malformed request) shouldn't kill
+    the whole run when a retry fixes it. Retries the JSON parse itself,
+    not just the HTTP status, since that's where this actually failed."""
+    last_exc = None
+    for attempt in range(attempts):
+        try:
+            resp = requests.get(url, params=params, timeout=timeout)
+            if resp.status_code != 200:
+                last_exc = RuntimeError(f"status {resp.status_code}: {resp.text[:300]}")
+            else:
+                return resp.json()
+        except (requests.exceptions.RequestException, ValueError) as e:
+            last_exc = e
+        if attempt < attempts - 1:
+            time.sleep(2 ** attempt)
+    raise RuntimeError(f"Open-Meteo request failed after {attempts} attempts: {last_exc}")
+
+
 def _sample_points():
     lons = np.linspace(GRID.lon_min, GRID.lon_max, N_SAMPLE_LON)
     lats = np.linspace(GRID.lat_min, GRID.lat_max, N_SAMPLE_LAT)
@@ -61,7 +84,7 @@ def download_wind(forecast_days: int = None, out_dir: Path = RAW_DIR) -> Path:
     forecast_days = forecast_days or (GRID.forecast_horizon_days + 1)
     lats, lons = _sample_points()
 
-    resp = requests.get(
+    payload = _get_json_with_retry(
         WIND_URL,
         params={
             "latitude": ",".join(f"{v:.3f}" for v in lats),
@@ -72,11 +95,8 @@ def download_wind(forecast_days: int = None, out_dir: Path = RAW_DIR) -> Path:
         },
         timeout=30,
     )
-    if resp.status_code != 200:
-        raise RuntimeError(f"Open-Meteo wind request failed (status {resp.status_code}): {resp.text[:300]}")
 
     rows = []
-    payload = resp.json()
     payload = payload if isinstance(payload, list) else [payload]
     for point in payload:
         times = pd.to_datetime(point["hourly"]["time"])
@@ -101,7 +121,7 @@ def download_current(forecast_days: int = None, out_dir: Path = RAW_DIR) -> Path
     forecast_days = forecast_days or (GRID.forecast_horizon_days + 1)
     lats, lons = _sample_points()
 
-    resp = requests.get(
+    payload = _get_json_with_retry(
         CURRENT_URL,
         params={
             "latitude": ",".join(f"{v:.3f}" for v in lats),
@@ -111,11 +131,8 @@ def download_current(forecast_days: int = None, out_dir: Path = RAW_DIR) -> Path
         },
         timeout=30,
     )
-    if resp.status_code != 200:
-        raise RuntimeError(f"Open-Meteo marine request failed (status {resp.status_code}): {resp.text[:300]}")
 
     rows = []
-    payload = resp.json()
     payload = payload if isinstance(payload, list) else [payload]
     for point in payload:
         times = pd.to_datetime(point["hourly"]["time"])
@@ -143,7 +160,7 @@ def download_wind_historical(start_date: str, end_date: str, out_dir: Path = RAW
     matches seaice_history.nc's date range so the model can use real
     weather as an input channel, not just concentration history."""
     lats, lons = _sample_points()
-    resp = requests.get(
+    payload = _get_json_with_retry(
         WIND_ARCHIVE_URL,
         params={
             "latitude": ",".join(f"{v:.3f}" for v in lats),
@@ -154,11 +171,8 @@ def download_wind_historical(start_date: str, end_date: str, out_dir: Path = RAW
         },
         timeout=60,
     )
-    if resp.status_code != 200:
-        raise RuntimeError(f"Open-Meteo wind archive request failed (status {resp.status_code}): {resp.text[:300]}")
 
     rows = []
-    payload = resp.json()
     payload = payload if isinstance(payload, list) else [payload]
     for point in payload:
         times = pd.to_datetime(point["hourly"]["time"])
@@ -181,7 +195,7 @@ def download_wind_historical(start_date: str, end_date: str, out_dir: Path = RAW
 def download_current_historical(start_date: str, end_date: str, out_dir: Path = RAW_DIR) -> Path:
     """Real historical ocean current, same rationale as download_wind_historical."""
     lats, lons = _sample_points()
-    resp = requests.get(
+    payload = _get_json_with_retry(
         CURRENT_ARCHIVE_URL,
         params={
             "latitude": ",".join(f"{v:.3f}" for v in lats),
@@ -191,11 +205,8 @@ def download_current_historical(start_date: str, end_date: str, out_dir: Path = 
         },
         timeout=60,
     )
-    if resp.status_code != 200:
-        raise RuntimeError(f"Open-Meteo marine archive request failed (status {resp.status_code}): {resp.text[:300]}")
 
     rows = []
-    payload = resp.json()
     payload = payload if isinstance(payload, list) else [payload]
     for point in payload:
         times = pd.to_datetime(point["hourly"]["time"])
