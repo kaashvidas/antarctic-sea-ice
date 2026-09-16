@@ -21,6 +21,13 @@ outputs/
 *.tif
 *.tiff
 
+# --- Deployment data bundle (scripts/export_serving_data.py's trimmed
+#     output, ~8MB total) is deliberately small and meant to be committed
+#     for simple git-based deploys -- override the broad data-file
+#     exclusions above for this directory only. ---
+!deploy_data/
+!deploy_data/**
+
 # --- Downloaded reference material (keep the papers themselves out of
 #     git if they're large PDFs; the file list can go in docs/papers/README.md) ---
 docs/papers/*.pdf

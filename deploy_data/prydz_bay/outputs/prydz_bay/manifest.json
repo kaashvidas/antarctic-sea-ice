@@ -1,0 +1,77 @@
+{
+  "region": "prydz_bay",
+  "forecast_date": "2026-09-16",
+  "forecast_horizon_days": 7,
+  "bounds": {
+    "lon_min": 66.0,
+    "lon_max": 90.0,
+    "lat_min": -73.0,
+    "lat_max": -60.0
+  },
+  "iceberg_ids": [
+    "D15A",
+    "D15B",
+    "D15C",
+    "D15D",
+    "D23",
+    "D34"
+  ],
+  "seaice_images": [
+    "seaice/day_00.png",
+    "seaice/day_01.png",
+    "seaice/day_02.png",
+    "seaice/day_03.png",
+    "seaice/day_04.png",
+    "seaice/day_05.png",
+    "seaice/day_06.png",
+    "seaice/day_07.png"
+  ],
+  "data_sources": {
+    "seaice": {
+      "variable": "sea_ice_concentration",
+      "source": "Trained ConvLSTM (src/models/seaice_forecast/convlstm.py), real multi-day autoregressive forecast",
+      "observation_date": "2026-09-11",
+      "input_channels": [
+        "sea_ice_concentration (AMSR2)"
+      ],
+      "method": "autoregressive rollout from the last 7 real observed days",
+      "held_out_skill": {
+        "persistence": {
+          "mae": 0.19305537641048431,
+          "rmse": 0.3731815833889439,
+          "bias": -0.0398913137614727
+        },
+        "climatology": {
+          "mae": 0.07958891987800598,
+          "rmse": 0.1771683115046965,
+          "bias": 0.04023673012852669
+        },
+        "convlstm": {
+          "mae": 0.052439868450164795,
+          "rmse": 0.13212058808729843,
+          "bias": 0.003634869819507003
+        }
+      },
+      "mae_by_lead_day": {
+        "1": 0.0326,
+        "2": 0.0423,
+        "3": 0.0504,
+        "4": 0.056,
+        "5": 0.0611,
+        "6": 0.0659,
+        "7": 0.0687
+      },
+      "is_real_data": true,
+      "is_true_forecast": true
+    },
+    "forcing": {
+      "variable": "wind_and_current",
+      "source": "Open-Meteo (GFS wind model + marine/wave current model), real multi-day forecast",
+      "method": "~70 real point samples across the domain, interpolated onto the shared grid",
+      "is_real_data": true,
+      "is_true_forecast": true
+    }
+  },
+  "placeholder_inputs": [],
+  "generated_at": "2026-09-16T02:30:19.145995"
+}

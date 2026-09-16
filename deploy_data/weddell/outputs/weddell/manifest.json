@@ -1,0 +1,77 @@
+{
+  "region": "weddell",
+  "forecast_date": "2026-09-15",
+  "forecast_horizon_days": 7,
+  "bounds": {
+    "lon_min": -60.0,
+    "lon_max": -35.0,
+    "lat_min": -68.0,
+    "lat_max": -54.0
+  },
+  "iceberg_ids": [
+    "D32",
+    "D33A",
+    "D33B",
+    "D33C",
+    "D33D",
+    "D35"
+  ],
+  "seaice_images": [
+    "seaice/day_00.png",
+    "seaice/day_01.png",
+    "seaice/day_02.png",
+    "seaice/day_03.png",
+    "seaice/day_04.png",
+    "seaice/day_05.png",
+    "seaice/day_06.png",
+    "seaice/day_07.png"
+  ],
+  "data_sources": {
+    "seaice": {
+      "variable": "sea_ice_concentration",
+      "source": "Trained ConvLSTM (src/models/seaice_forecast/convlstm.py), real multi-day autoregressive forecast",
+      "observation_date": "2026-09-11",
+      "input_channels": [
+        "sea_ice_concentration (AMSR2)"
+      ],
+      "method": "autoregressive rollout from the last 7 real observed days",
+      "held_out_skill": {
+        "persistence": {
+          "mae": 0.16549243032932281,
+          "rmse": 0.35246675547622186,
+          "bias": 0.020456016063690186
+        },
+        "climatology": {
+          "mae": 0.08868293464183807,
+          "rmse": 0.18434743190204742,
+          "bias": 0.04718635231256485
+        },
+        "convlstm": {
+          "mae": 0.04680119454860687,
+          "rmse": 0.12658817949094783,
+          "bias": 0.010688921436667442
+        }
+      },
+      "mae_by_lead_day": {
+        "1": 0.0278,
+        "2": 0.0345,
+        "3": 0.0407,
+        "4": 0.0448,
+        "5": 0.0504,
+        "6": 0.0548,
+        "7": 0.0605
+      },
+      "is_real_data": true,
+      "is_true_forecast": true
+    },
+    "forcing": {
+      "variable": "wind_and_current",
+      "source": "Open-Meteo (GFS wind model + marine/wave current model), real multi-day forecast",
+      "method": "~70 real point samples across the domain, interpolated onto the shared grid",
+      "is_real_data": true,
+      "is_true_forecast": true
+    }
+  },
+  "placeholder_inputs": [],
+  "generated_at": "2026-09-15T23:47:55.902362"
+}

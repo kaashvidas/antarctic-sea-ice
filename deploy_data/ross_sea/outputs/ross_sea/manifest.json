@@ -1,0 +1,73 @@
+{
+  "region": "ross_sea",
+  "forecast_date": "2026-09-16",
+  "forecast_horizon_days": 7,
+  "bounds": {
+    "lon_min": 150.0,
+    "lon_max": 179.9,
+    "lat_min": -78.0,
+    "lat_max": -65.0
+  },
+  "iceberg_ids": [
+    "B22A",
+    "B22H"
+  ],
+  "seaice_images": [
+    "seaice/day_00.png",
+    "seaice/day_01.png",
+    "seaice/day_02.png",
+    "seaice/day_03.png",
+    "seaice/day_04.png",
+    "seaice/day_05.png",
+    "seaice/day_06.png",
+    "seaice/day_07.png"
+  ],
+  "data_sources": {
+    "seaice": {
+      "variable": "sea_ice_concentration",
+      "source": "Trained ConvLSTM (src/models/seaice_forecast/convlstm.py), real multi-day autoregressive forecast",
+      "observation_date": "2026-09-11",
+      "input_channels": [
+        "sea_ice_concentration (AMSR2)"
+      ],
+      "method": "autoregressive rollout from the last 7 real observed days",
+      "held_out_skill": {
+        "persistence": {
+          "mae": 0.1790030598640442,
+          "rmse": 0.3748663425673345,
+          "bias": 0.14531302452087402
+        },
+        "climatology": {
+          "mae": 0.08070313185453415,
+          "rmse": 0.18286321254518126,
+          "bias": 0.020779116079211235
+        },
+        "convlstm": {
+          "mae": 0.049664098769426346,
+          "rmse": 0.12554967988684396,
+          "bias": 0.007756917737424374
+        }
+      },
+      "mae_by_lead_day": {
+        "1": 0.0302,
+        "2": 0.0407,
+        "3": 0.0483,
+        "4": 0.0547,
+        "5": 0.0618,
+        "6": 0.0682,
+        "7": 0.073
+      },
+      "is_real_data": true,
+      "is_true_forecast": true
+    },
+    "forcing": {
+      "variable": "wind_and_current",
+      "source": "Open-Meteo (GFS wind model + marine/wave current model), real multi-day forecast",
+      "method": "~70 real point samples across the domain, interpolated onto the shared grid",
+      "is_real_data": true,
+      "is_true_forecast": true
+    }
+  },
+  "placeholder_inputs": [],
+  "generated_at": "2026-09-16T20:14:05.591915"
+}
