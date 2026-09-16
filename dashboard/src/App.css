@@ -261,6 +261,44 @@
   color: var(--text-3);
 }
 
+.quick-locations {
+  margin-bottom: var(--sp-3);
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+.quick-locations-label {
+  display: block;
+  margin-bottom: var(--sp-2);
+}
+.quick-location-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-1);
+  flex-wrap: wrap;
+}
+.quick-location-name {
+  font-size: var(--fs-label);
+  color: var(--text-1);
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+.btn-chip {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  padding: 2px var(--sp-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-chip:hover {
+  border-color: var(--accent-cyan-dim);
+  color: var(--accent-cyan);
+}
+
 /* ============================================================
    Journey Planner view
    ============================================================ */

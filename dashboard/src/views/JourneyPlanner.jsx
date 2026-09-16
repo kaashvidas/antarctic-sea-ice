@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import LocatorMap from '../components/LocatorMap'
 import { planJourney } from '../api'
+import { regionInfoFor } from '../regionPresets'
 
 const DEFAULT_SPEED = 18
 
@@ -10,10 +11,15 @@ function toNum(v) {
 }
 
 export default function JourneyPlanner({ manifest, iceClasses, onPlanned }) {
-  const [startLat, setStartLat] = useState('-65.5')
-  const [startLon, setStartLon] = useState('-57.0')
-  const [goalLat, setGoalLat] = useState('-56.5')
-  const [goalLon, setGoalLon] = useState('-37.0')
+  // No hardcoded region-specific defaults here -- this platform now serves
+  // multiple real regions (Weddell Sea, Prydz Bay, Ross Sea, ...), and a
+  // Weddell-shaped default would be silently wrong lat/lon for any other
+  // one. Start empty; the quick-location buttons below (real, verified
+  // per-region coordinates) are the fast path instead.
+  const [startLat, setStartLat] = useState('')
+  const [startLon, setStartLon] = useState('')
+  const [goalLat, setGoalLat] = useState('')
+  const [goalLon, setGoalLon] = useState('')
   const [departure, setDeparture] = useState('2026-09-15T06:00')
   const [speed, setSpeed] = useState(String(DEFAULT_SPEED))
   const [iceClass, setIceClass] = useState('')
@@ -26,6 +32,7 @@ export default function JourneyPlanner({ manifest, iceClasses, onPlanned }) {
   const bounds = manifest
     ? [[manifest.bounds.lat_min, manifest.bounds.lon_min], [manifest.bounds.lat_max, manifest.bounds.lon_max]]
     : null
+  const regionInfo = regionInfoFor(manifest?.region)
 
   const start = { lat: toNum(startLat), lon: toNum(startLon) }
   const goal = { lat: toNum(goalLat), lon: toNum(goalLon) }
@@ -91,7 +98,23 @@ export default function JourneyPlanner({ manifest, iceClasses, onPlanned }) {
     <div className="planner">
       <form className="planner-form" onSubmit={handleSubmit}>
         <div className="panel">
-          <h2 className="panel-title">Route</h2>
+          <h2 className="panel-title">Route — {regionInfo.displayName}</h2>
+          {regionInfo.locations.length > 0 && (
+            <div className="quick-locations">
+              <span className="field-hint quick-locations-label">Known locations (verified real coordinates):</span>
+              {regionInfo.locations.map((loc) => (
+                <div className="quick-location-row" key={loc.label}>
+                  <span className="quick-location-name">{loc.label}</span>
+                  <button type="button" className="btn-chip" onClick={() => { setStartLat(String(loc.lat)); setStartLon(String(loc.lon)) }}>
+                    Set start
+                  </button>
+                  <button type="button" className="btn-chip" onClick={() => { setGoalLat(String(loc.lat)); setGoalLon(String(loc.lon)) }}>
+                    Set destination
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="field-grid two-col">
             <label className="field">
               <span className="field-label">Start lat</span>
@@ -167,7 +190,7 @@ export default function JourneyPlanner({ manifest, iceClasses, onPlanned }) {
       </form>
 
       <div className="planner-map-pane">
-        <div className="planner-map-label">Weddell Sea — click to set start / destination</div>
+        <div className="planner-map-label">{regionInfo.displayName} — click to set start / destination</div>
         {bounds ? (
           <LocatorMap bounds={bounds} start={start} goal={goal} onPick={handleMapPick} />
         ) : (
