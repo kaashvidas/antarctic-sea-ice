@@ -1,0 +1,54 @@
+# Render "Blueprint" — deploys all three regional backends from this one
+# repo in a single step (Render dashboard: New > Blueprint > pick this
+# repo). Each service builds the same Dockerfile with a different
+# REGION build arg, matching the local `REGION=<name> uvicorn ...`
+# pattern exactly. See PROJECT_STATUS.md / the deployment writeup for
+# the full walkthrough, including setting FRONTEND_ORIGIN once the
+# Vercel/Netlify URL is known.
+services:
+  - type: web
+    name: kryos-weddell
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerBuildArgs:
+      REGION: weddell
+    envVars:
+      - key: REGION
+        value: weddell
+      - key: FRONTEND_ORIGIN
+        sync: false # set manually once the frontend's deployed URL is known
+    plan: starter # NOT free -- free tier spins down on idle, adding a cold-start
+                  # delay on top of the isochrone router's own ~30s, which reads
+                  # as "broken" during a live demo. See deployment writeup.
+    healthCheckPath: /api/manifest
+
+  - type: web
+    name: kryos-prydz-bay
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerBuildArgs:
+      REGION: prydz_bay
+    envVars:
+      - key: REGION
+        value: prydz_bay
+      - key: FRONTEND_ORIGIN
+        sync: false
+    plan: starter
+    healthCheckPath: /api/manifest
+
+  - type: web
+    name: kryos-ross-sea
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerBuildArgs:
+      REGION: ross_sea
+    envVars:
+      - key: REGION
+        value: ross_sea
+      - key: FRONTEND_ORIGIN
+        sync: false
+    plan: starter
+    healthCheckPath: /api/manifest
