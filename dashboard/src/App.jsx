@@ -9,6 +9,13 @@ import { fetchManifest, fetchIceClasses, setApiBase, getApiBase } from './api'
 import { REGION_INFO } from './regionPresets'
 import JourneyPlanner from './views/JourneyPlanner'
 import VoyageReport from './views/VoyageReport'
+import Splash from './components/Splash'
+
+// Real minimum time the opening splash stays up, so it reads as an
+// intentional opening beat rather than a one-frame flash when the local
+// backend responds fast -- not an artificial delay on top of loading,
+// just a floor under how quickly it can be dismissed.
+const SPLASH_MIN_MS = 1400
 
 // One backend process per region (see api.js's comment on setApiBase) --
 // this is what actually lets the dashboard show more than one region:
@@ -23,6 +30,12 @@ export default function App() {
   const [iceClasses, setIceClasses] = useState(null)
   const [loadError, setLoadError] = useState(null)
   const [report, setReport] = useState(null)
+  const [showSplash, setShowSplash] = useState(true)
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShowSplash(false), SPLASH_MIN_MS)
+    return () => clearTimeout(timer)
+  }, [])
 
   useEffect(() => {
     setApiBase(`http://localhost:${REGION_INFO[selectedRegion].apiPort}`)
@@ -37,6 +50,10 @@ export default function App() {
       })
       .catch((err) => setLoadError(err.message))
   }, [selectedRegion])
+
+  if (showSplash) {
+    return <Splash />
+  }
 
   if (loadError) {
     return (
