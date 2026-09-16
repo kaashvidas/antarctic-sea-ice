@@ -11,7 +11,7 @@
 # three Render services just set a different REGION env var each.
 #
 # Build: docker build -t kryos .
-# Run:   docker run -e REGION=weddell -p 8000:8000 kryos
+# Run:   docker run -e REGION=weddell -p 10000:10000 kryos
 FROM python:3.14-slim
 
 WORKDIR /app
@@ -35,6 +35,13 @@ COPY deploy_data/ross_sea/outputs/ outputs/
 
 # REGION is NOT set here -- each Render service supplies its own via
 # render.yaml's envVars, so this one image serves whichever region that
-# service is configured for. Render/Railway inject PORT at runtime;
-# default 8000 for local `docker run` without one set.
-CMD ["sh", "-c", "uvicorn src.backend.app:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# service is configured for.
+#
+# Port: Render's docker-runtime services do NOT auto-inject PORT the way
+# other runtimes do -- confirmed against Render's own docs -- and its
+# health checker defaults to port 10000. render.yaml sets PORT=10000
+# explicitly for exactly this reason; the ${PORT:-10000} fallback here
+# just means a plain local `docker run` with no PORT set still matches
+# Render's real default instead of an arbitrary one that only works
+# locally.
+CMD ["sh", "-c", "uvicorn src.backend.app:app --host 0.0.0.0 --port ${PORT:-10000}"]
