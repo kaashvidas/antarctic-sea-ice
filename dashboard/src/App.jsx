@@ -1,40 +1,50 @@
 import { useEffect, useState } from 'react'
 import './App.css'
-import { fetchManifest, fetchIceClasses } from './api'
+import { fetchManifest, fetchIceClasses, setApiBase, getApiBase } from './api'
+import { REGION_INFO } from './regionPresets'
 import JourneyPlanner from './views/JourneyPlanner'
 import VoyageReport from './views/VoyageReport'
 
+// One backend process per region (see api.js's comment on setApiBase) --
+// this is what actually lets the dashboard show more than one region:
+// switching here points every API call at a different already-running
+// uvicorn instance, rather than only ever showing whichever region the
+// single backend happened to start with.
+const REGION_KEYS = Object.keys(REGION_INFO)
+
 export default function App() {
+  const [selectedRegion, setSelectedRegion] = useState(REGION_KEYS[0])
   const [manifest, setManifest] = useState(null)
   const [iceClasses, setIceClasses] = useState(null)
   const [loadError, setLoadError] = useState(null)
   const [report, setReport] = useState(null)
 
   useEffect(() => {
+    setApiBase(`http://localhost:${REGION_INFO[selectedRegion].apiPort}`)
+    setManifest(null)
+    setIceClasses(null)
+    setLoadError(null)
+    setReport(null)
     Promise.all([fetchManifest(), fetchIceClasses()])
       .then(([m, ic]) => {
         setManifest(m)
         setIceClasses(ic)
       })
       .catch((err) => setLoadError(err.message))
-  }, [])
+  }, [selectedRegion])
 
   if (loadError) {
     return (
       <div className="app-status error">
         <div>
-          Failed to load data from the backend API at <strong>http://localhost:8001</strong>.
+          Failed to load data from the backend API at <strong>{getApiBase()}</strong>.
           <br />
-          Make sure it&rsquo;s running:
-          <code>venv/Scripts/python.exe -m uvicorn src.backend.app:app --reload --port 8001</code>
+          Make sure it&rsquo;s running for this region:
+          <code>REGION={selectedRegion} venv/Scripts/python.exe -m uvicorn src.backend.app:app --port {REGION_INFO[selectedRegion].apiPort}</code>
           <code>{loadError}</code>
         </div>
       </div>
     )
-  }
-
-  if (!manifest || !iceClasses) {
-    return <div className="app-status">Loading Antarctic navigation data…</div>
   }
 
   return (
@@ -44,13 +54,33 @@ export default function App() {
           <span className="app-mark" aria-hidden="true">⬡</span>
           KRYOS <span className="app-topbar-subtitle">— Antarctic Voyage Navigator</span>
         </div>
-        <div className="app-topbar-meta">
-          Forecast issued {manifest.forecast_date} · {manifest.forecast_horizon_days}-day horizon
+        <div className="app-topbar-controls">
+          <div className="region-switcher" role="tablist" aria-label="Region">
+            {REGION_KEYS.map((key) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={key === selectedRegion}
+                className={`region-tab${key === selectedRegion ? ' region-tab--active' : ''}`}
+                onClick={() => setSelectedRegion(key)}
+              >
+                {REGION_INFO[key].displayName}
+              </button>
+            ))}
+          </div>
+          {manifest && (
+            <div className="app-topbar-meta">
+              Forecast issued {manifest.forecast_date} · {manifest.forecast_horizon_days}-day horizon
+            </div>
+          )}
         </div>
       </header>
 
       <main className="app-main">
-        {report ? (
+        {!manifest || !iceClasses ? (
+          <div className="app-status">Loading {REGION_INFO[selectedRegion].displayName} navigation data…</div>
+        ) : report ? (
           <VoyageReport
             report={report}
             manifest={manifest}

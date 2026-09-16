@@ -85,6 +85,40 @@
   font-size: var(--fs-label);
   color: var(--text-2);
   font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.app-topbar-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.region-switcher {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+.region-tab {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  padding: 3px var(--sp-3);
+  border-radius: calc(var(--radius-sm) - 2px);
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.region-tab:hover {
+  color: var(--text-0);
+}
+.region-tab--active {
+  background: var(--accent-cyan-dim);
+  color: var(--accent-cyan);
 }
 
 .app-main {

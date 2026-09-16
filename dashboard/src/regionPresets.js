@@ -3,32 +3,53 @@
 // stations are labeled with their real name and the real navigable point
 // closest to them (a station itself sits on land/ice -- ships can't start
 // there, so each station location is the nearest real open-water cell,
-// found via find_open_water(), with the real distance from the station
-// noted). Every coordinate here was verified via an actual plan_journey()
-// call during development (not guessed). Non-station points (e.g. "open
-// water") are real, tested reference points included for a second
-// endpoint, not tied to any specific place.
+// found via find_open_water() against the station's real coordinates,
+// with the real distance from the station noted). Every station's real
+// coordinates were independently verified via web search (not taken from
+// memory), and every navigable point was checked with an actual
+// plan_journey() call during development, not guessed.
+//
+// This list was audited 2026-09-16 for completeness within each region's
+// real bounding box (not just "one station per region" from partial
+// knowledge) -- see PROJECT_STATUS.md section 6 for the audit notes. It
+// may still not be perfectly exhaustive (no authoritative single source
+// was cross-checked against), but every entry here is real and verified,
+// and the known clusters (Larsemann Hills, McMurdo Sound, South Orkney
+// Islands / Antarctic Peninsula) are all represented.
 export const REGION_INFO = {
   weddell: {
     displayName: 'Weddell Sea',
+    apiPort: 8001,
     locations: [
       { label: 'Orcadas Station (Argentina)', lat: -60.625, lon: -44.625, note: '~14 km from the real station' },
+      { label: 'Signy Research Station (UK)', lat: -60.875, lon: -45.875, note: '~24 km from the real station' },
+      { label: 'Esperanza Base (Argentina)', lat: -63.375, lon: -56.875, note: '~7 km from the real station' },
+      { label: 'Marambio Base (Argentina)', lat: -64.125, lon: -56.625, note: '~13 km from the real station' },
       { label: 'Iceberg cluster edge (D32/D33)', lat: -58.88, lon: -51.12 },
       { label: 'Northeast open water', lat: -54.88, lon: -35.12 },
     ],
   },
   prydz_bay: {
     displayName: 'Prydz Bay',
+    apiPort: 8002,
     locations: [
       { label: 'Bharati Station (India)', lat: -69.375, lon: 76.125, note: '~5 km from the real station' },
+      { label: 'Progress Station (Russia)', lat: -69.375, lon: 76.375, note: '~1 km from the real station' },
+      { label: 'Zhongshan Station (China)', lat: -69.375, lon: 76.375, note: '~0.2 km from the real station' },
+      { label: 'Davis Station (Australia)', lat: -68.625, lon: 77.875, note: '~7 km from the real station' },
+      { label: 'Law-Racoviță-Negoiță Station (Romania)', lat: -69.375, lon: 76.375, note: '~1.5 km from the real station' },
       { label: 'Prydz Bay iceberg zone (D23)', lat: -69.625, lon: 74.875 },
       { label: 'Open water, north of the bay', lat: -60.875, lon: 70.0 },
     ],
   },
   ross_sea: {
     displayName: 'Ross Sea',
+    apiPort: 8003,
     locations: [
-      { label: 'McMurdo Station (USA/NZ)', lat: -77.375, lon: 166.125, note: '~55 km from the real station' },
+      { label: 'McMurdo Station (USA)', lat: -77.375, lon: 166.125, note: '~55 km from the real station' },
+      { label: 'Scott Base (New Zealand)', lat: -77.875, lon: 166.875, note: '~4 km from the real station' },
+      { label: 'Mario Zucchelli Station (Italy)', lat: -74.875, lon: 163.875, note: '~21 km from the real station' },
+      { label: 'Jang Bogo Station (South Korea)', lat: -74.875, lon: 163.875, note: '~31 km from the real station' },
       { label: 'Ross Sea open water', lat: -67.875, lon: 175.125 },
     ],
   },
@@ -36,6 +57,7 @@ export const REGION_INFO = {
 
 export const DEFAULT_REGION_INFO = {
   displayName: 'this domain',
+  apiPort: 8001,
   locations: [],
 }
 
