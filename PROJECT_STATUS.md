@@ -81,6 +81,9 @@ Ranked by how much they actually matter for the pitch:
 
   Known real limitation carried over from this refactor, not fixed: the grid is a simple non-wrapping lon/lat box, so a region crossing the antimeridian (180°/-180°) isn't representable — `ross_sea`'s bounds were chosen to avoid this rather than fix the underlying grid math. Fine for now; would need real work if a future region genuinely requires straddling the dateline.
 
+- ~~Frontend only ever shows one region~~ **Done** (2026-09-16). One backend process still serves exactly one region (no live per-request region switch server-side) — what changed is the dashboard now runs three backend instances side by side (`REGION=weddell` port 8001, `REGION=prydz_bay` port 8002, `REGION=ross_sea` port 8003) and the frontend has a real tab switcher (`App.jsx`) that points every API call at the right instance via `api.js`'s `setApiBase()`. To add a fourth region here later: start its backend on a new port, add it to `REGION_INFO` in `dashboard/src/regionPresets.js` with that `apiPort`, done.
+- ~~Only one station labeled per region on the map~~ **Done** (2026-09-16). The original 3 labeled stations (Bharati, McMurdo, Orcadas) were an incomplete, partial-knowledge list, not an audited one — a direct question caught this. A proper web-search-verified check found **13 real stations total** across the three regions (full list in section 6 below); all are now labeled on the map with real coordinates, verified navigable points, and disclosed real distances from the actual station.
+
 ## 5. What can be stalled for later
 
 - **Resolution increase (0.25° → 0.125°).** Real, worth doing, but expensive (roughly 4x training compute) and needs its own dedicated run with a full epoch budget — don't combine it with other changes in the same run, and don't rush it the way tonight's first attempt at combining it with more data almost did.
